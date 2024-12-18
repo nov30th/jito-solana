@@ -24,13 +24,26 @@ impl AccountLocks {
     pub fn try_lock_accounts<'a>(
         &mut self,
         keys: impl Iterator<Item = (&'a Pubkey, bool)> + Clone,
+        additional_read_locks: Option<&std::collections::HashSet<Pubkey>>,
+        additional_write_locks: Option<&std::collections::HashSet<Pubkey>>,
     ) -> Result<(), TransactionError> {
         for (key, writable) in keys.clone() {
             if writable {
-                if !self.can_write_lock(key) {
+                if !self.can_write_lock(key)
+                    || additional_read_locks
+                        .map(|s| s.contains(key))
+                        .unwrap_or(false)
+                    || additional_write_locks
+                        .map(|s| s.contains(key))
+                        .unwrap_or(false)
+                {
                     return Err(TransactionError::AccountInUse);
                 }
-            } else if !self.can_read_lock(key) {
+            } else if !self.can_read_lock(key)
+                || additional_write_locks
+                    .map(|s| s.contains(key))
+                    .unwrap_or(false)
+            {
                 return Err(TransactionError::AccountInUse);
             }
         }

@@ -6,14 +6,18 @@ use {
 /// Encapsulates overridden accounts, typically used for transaction
 /// simulations. Account overrides are currently not used when loading the
 /// durable nonce account or when constructing the instructions sysvar account.
-#[derive(Default)]
+#[derive(Clone, Default, Debug)]
 pub struct AccountOverrides {
     accounts: HashMap<Pubkey, AccountSharedData>,
 }
 
 impl AccountOverrides {
+    pub fn upsert_account_overrides(&mut self, other: AccountOverrides) {
+        self.accounts.extend(other.accounts);
+    }
+
     /// Insert or remove an account with a given pubkey to/from the list of overrides.
-    fn set_account(&mut self, pubkey: &Pubkey, account: Option<AccountSharedData>) {
+    pub fn set_account(&mut self, pubkey: &Pubkey, account: Option<AccountSharedData>) {
         match account {
             Some(account) => self.accounts.insert(*pubkey, account),
             None => self.accounts.remove(pubkey),
