@@ -1,6 +1,4 @@
 #![cfg(test)]
-
-use std::iter;
 use {
     super::*,
     crate::{

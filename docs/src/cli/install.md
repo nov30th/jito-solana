@@ -65,10 +65,10 @@ solana --version
 
 - Open a Command Prompt (`cmd.exe`) as an Administrator
 
-    - Search for Command Prompt in the Windows search bar. When the Command Prompt
-      app appears, right-click and select “Open as Administrator”. If you are
-      prompted by a pop-up window asking “Do you want to allow this app to make
-      changes to your device?”, click Yes.
+- Search for Command Prompt in the Windows search bar. When the Command Prompt
+  app appears, right-click and select “Open as Administrator”. If you are
+  prompted by a pop-up window asking “Do you want to allow this app to make
+  changes to your device?”, click Yes.
 
 - Copy and paste the following command, then press Enter to download the Solana
   installer into a temporary directory:
@@ -89,8 +89,8 @@ C:\agave-install-tmp\agave-install-init.exe LATEST_AGAVE_RELEASE_VERSION
 
 - Close the command prompt window and re-open a new command prompt window as a
   normal user
-    - Search for "Command Prompt" in the search bar, then left click on the
-      Command Prompt app icon, no need to run as Administrator)
+- Search for "Command Prompt" in the search bar, then left click on the
+  Command Prompt app icon, no need to run as Administrator)
 - Confirm you have the desired version of `solana` installed by entering:
 
 ```bash

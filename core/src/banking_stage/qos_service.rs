@@ -709,7 +709,7 @@ mod tests {
         let (results, num_selected) = qos_service.select_transactions_per_cost(
             txs.iter(),
             txs_costs.into_iter(),
-            bank.slot(),
+            &bank,
             &mut bank.write_cost_tracker().unwrap(),
         );
         assert_eq!(num_selected, 2);
@@ -767,7 +767,7 @@ mod tests {
             let (qos_cost_results, _num_included) = qos_service.select_transactions_per_cost(
                 txs.iter(),
                 txs_costs.into_iter(),
-                bank.slot(),
+                &bank,
                 &mut bank.write_cost_tracker().unwrap(),
             );
             assert_eq!(
@@ -840,7 +840,7 @@ mod tests {
             let (qos_cost_results, _num_included) = qos_service.select_transactions_per_cost(
                 txs.iter(),
                 txs_costs.into_iter(),
-                bank.slot(),
+                &bank,
                 &mut bank.write_cost_tracker().unwrap(),
             );
             assert_eq!(
@@ -898,7 +898,7 @@ mod tests {
             let (qos_cost_results, _num_included) = qos_service.select_transactions_per_cost(
                 txs.iter(),
                 txs_costs.into_iter(),
-                bank.slot(),
+                &bank,
                 &mut bank.write_cost_tracker().unwrap(),
             );
             assert_eq!(

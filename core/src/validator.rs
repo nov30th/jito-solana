@@ -243,14 +243,10 @@ pub struct ValidatorConfig {
     pub fixed_leader_schedule: Option<FixedSchedule>,
     pub wait_for_supermajority: Option<Slot>,
     pub new_hard_forks: Option<Vec<Slot>>,
-    pub known_validators: Option<HashSet<Pubkey>>,
-    // None = trust all
-    pub repair_validators: Option<HashSet<Pubkey>>,
-    // None = repair from all
-    pub repair_whitelist: Arc<RwLock<HashSet<Pubkey>>>,
-    // Empty = repair with all
-    pub gossip_validators: Option<HashSet<Pubkey>>,
-    // None = gossip with all
+    pub known_validators: Option<HashSet<Pubkey>>, // None = trust all
+    pub repair_validators: Option<HashSet<Pubkey>>, // None = repair from all
+    pub repair_whitelist: Arc<RwLock<HashSet<Pubkey>>>, // Empty = repair with all
+    pub gossip_validators: Option<HashSet<Pubkey>>, // None = gossip with all
     pub accounts_hash_interval_slots: u64,
     pub max_genesis_archive_unpacked_size: u64,
     /// Run PoH, transaction signature and other transaction verifications during blockstore
@@ -298,7 +294,6 @@ pub struct ValidatorConfig {
     pub delay_leader_block_for_pending_fork: bool,
     pub relayer_config: Arc<Mutex<RelayerConfig>>,
     pub block_engine_config: Arc<Mutex<BlockEngineConfig>>,
-    // Using Option inside RwLock is ugly, but only convenient way to allow toggle on/off
     pub shred_receiver_address: Arc<RwLock<Option<SocketAddr>>>,
     pub shred_retransmit_receiver_address: Arc<RwLock<Option<SocketAddr>>>,
     pub tip_manager_config: TipManagerConfig,
@@ -425,8 +420,7 @@ impl ValidatorConfig {
 // having to watch log messages.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ValidatorStartProgress {
-    Initializing,
-    // Catch all, default state
+    Initializing, // Catch all, default state
     SearchingForRpcService,
     DownloadingSnapshot {
         slot: Slot,
@@ -440,8 +434,7 @@ pub enum ValidatorStartProgress {
         max_slot: Slot,
     },
     StartingServices,
-    Halted,
-    // Validator halted due to `--dev-halt-at-slot` argument
+    Halted, // Validator halted due to `--dev-halt-at-slot` argument
     WaitingForSupermajority {
         slot: Slot,
         gossip_stake_percent: u64,
@@ -3069,7 +3062,7 @@ mod tests {
                     Arc::new(RwLock::new(vec![Arc::new(vote_account_keypair)])),
                     vec![leader_node.info.clone()],
                     &config,
-                    true, // should_check_duplicate_instance
+                    true, // should_check_duplicate_instance.
                     None, // rpc_to_plugin_manager_receiver
                     Arc::new(RwLock::new(ValidatorStartProgress::default())),
                     SocketAddrSpace::Unspecified,
