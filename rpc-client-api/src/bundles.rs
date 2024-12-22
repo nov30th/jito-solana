@@ -10,6 +10,7 @@ use {
         signature::Signature,
         transaction::TransactionError,
     },
+    solana_svm::transaction_processing_result::ProcessedTransaction,
     solana_transaction_status_client_types::{UiTransactionEncoding, UiTransactionReturnData},
     thiserror::Error,
 };
@@ -71,21 +72,21 @@ impl From<BundleExecutionError> for RpcBundleExecutionError {
                     LoadAndExecuteBundleError::TransactionError {
                         signature,
                         execution_result,
-                    } => Self::TransactionFailure(signature, "TransactionError".to_string()),
-                    // TODO (LB): fix
-                    // match *execution_result {
-                    // TransactionExecutionResult::Executed { details, .. } => {
-                    //     let err_msg = if let Err(e) = details.status {
-                    //         e.to_string()
-                    //     } else {
-                    //         "Unknown error".to_string()
-                    //     };
-                    //     Self::TransactionFailure(signature, err_msg)
-                    // }
-                    // TransactionExecutionResult::NotExecuted(e) => {
-                    //     Self::TransactionFailure(signature, e.to_string())
-                    // }
-                    // },
+                    } => match *execution_result {
+                        Ok(ProcessedTransaction::Executed(executed_transaction)) => {
+                            let err_msg =
+                                if let Err(e) = executed_transaction.execution_details.status {
+                                    e.to_string()
+                                } else {
+                                    "Unknown error".to_string()
+                                };
+                            Self::TransactionFailure(signature, err_msg)
+                        }
+                        Ok(ProcessedTransaction::FeesOnly(fees_only)) => {
+                            Self::TransactionFailure(signature, fees_only.load_error.to_string())
+                        }
+                        Err(e) => Self::TransactionFailure(signature, e.to_string()),
+                    },
                     LoadAndExecuteBundleError::InvalidPreOrPostAccounts => {
                         Self::InvalidPreOrPostAccounts
                     }

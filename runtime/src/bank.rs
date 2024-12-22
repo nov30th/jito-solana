@@ -3944,7 +3944,7 @@ impl Bank {
 
     pub fn collect_balances_with_cache(
         &self,
-        batch: &TransactionBatch<SanitizedTransaction>,
+        batch: &TransactionBatch<RuntimeTransaction<SanitizedTransaction>>,
         account_overrides: Option<&AccountOverrides>,
     ) -> TransactionBalances {
         let mut balances: TransactionBalances = vec![];

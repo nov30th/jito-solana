@@ -2,7 +2,10 @@ use {
     crate::SanitizedBundle,
     itertools::izip,
     log::*,
+    solana_ledger::token_balances::collect_token_balances,
+    solana_measure::{measure::Measure, measure_us},
     solana_runtime::{
+        account_saver::collect_accounts_to_store,
         bank::{Bank, LoadAndExecuteTransactionsOutput, TransactionBalances},
         transaction_batch::TransactionBatch,
     },
@@ -10,6 +13,7 @@ use {
     solana_sdk::{
         account::AccountSharedData,
         pubkey::Pubkey,
+        saturating_add_assign,
         signature::Signature,
         transaction::{Result, SanitizedTransaction, TransactionError, VersionedTransaction},
     },
@@ -18,10 +22,15 @@ use {
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processing_result::{ProcessedTransaction, TransactionProcessingResult},
+        transaction_processor::{ExecutionRecordingConfig, TransactionProcessingConfig},
     },
     solana_timings::ExecuteTimings,
     solana_transaction_status::{token_balances::TransactionTokenBalances, PreBalanceInfo},
-    std::{result, time::Duration},
+    std::{
+        cmp::{max, min},
+        result,
+        time::{Duration, Instant},
+    },
     thiserror::Error,
 };
 
@@ -186,8 +195,14 @@ pub type LoadAndExecuteBundleResult<T> = result::Result<T, LoadAndExecuteBundleE
 /// slice
 pub fn check_bundle_execution_results<'a>(
     execution_results: &'a [TransactionProcessingResult],
-    sanitized_txs: &'a [SanitizedTransaction],
-) -> result::Result<(), (&'a SanitizedTransaction, &'a TransactionProcessingResult)> {
+    sanitized_txs: &'a [RuntimeTransaction<SanitizedTransaction>],
+) -> result::Result<
+    (),
+    (
+        &'a RuntimeTransaction<SanitizedTransaction>,
+        &'a TransactionProcessingResult,
+    ),
+> {
     for (exec_results, sanitized_tx) in execution_results.iter().zip(sanitized_txs) {
         match exec_results {
             Err(TransactionError::AccountInUse) => {
@@ -241,273 +256,269 @@ pub fn load_and_execute_bundle<'a>(
     pre_execution_accounts: &[Option<Vec<Pubkey>>],
     post_execution_accounts: &[Option<Vec<Pubkey>>],
 ) -> LoadAndExecuteBundleOutput<'a> {
-    // if pre_execution_accounts.len() != post_execution_accounts.len()
-    //     || post_execution_accounts.len() != bundle.transactions.len()
-    // {
-    return LoadAndExecuteBundleOutput {
-        bundle_transaction_results: vec![],
-        result: Err(LoadAndExecuteBundleError::InvalidPreOrPostAccounts),
-        metrics: BundleExecutionMetrics::default(),
-    };
-    // }
+    if pre_execution_accounts.len() != post_execution_accounts.len()
+        || post_execution_accounts.len() != bundle.transactions.len()
+    {
+        return LoadAndExecuteBundleOutput {
+            bundle_transaction_results: vec![],
+            result: Err(LoadAndExecuteBundleError::InvalidPreOrPostAccounts),
+            metrics: BundleExecutionMetrics::default(),
+        };
+    }
 
-    // let mut binding = AccountOverrides::default();
-    // let account_overrides = account_overrides.unwrap_or(&mut binding);
-    // if is_simulation {
-    //     bundle
-    //         .transactions
-    //         .iter()
-    //         .map(|tx| tx.message().account_keys())
-    //         .for_each(|account_keys| {
-    //             account_overrides.upsert_account_overrides(
-    //                 bank.get_account_overrides_for_simulation(&account_keys),
-    //             );
-    //
-    //             // An unfrozen bank's state is always changing.
-    //             // By taking a snapshot of the accounts we're mocking out grabbing their locks.
-    //             // **Note** this does not prevent race conditions, just mocks preventing them.
-    //             if !bank.is_frozen() {
-    //                 for pk in account_keys.iter() {
-    //                     // Save on a disk read.
-    //                     if account_overrides.get(pk).is_none() {
-    //                         account_overrides.set_account(pk, bank.get_account_shared_data(pk));
-    //                     }
-    //                 }
-    //             }
-    //         });
-    // }
-    //
-    // let mut chunk_start = 0;
-    // let start_time = Instant::now();
-    //
-    // let mut bundle_transaction_results = vec![];
-    // let mut metrics = BundleExecutionMetrics::default();
-    //
-    // while chunk_start != bundle.transactions.len() {
-    //     if start_time.elapsed() > *max_processing_time {
-    //         trace!("bundle: {} took too long to execute", bundle.bundle_id);
-    //         return LoadAndExecuteBundleOutput {
-    //             bundle_transaction_results,
-    //             metrics,
-    //             result: Err(LoadAndExecuteBundleError::ProcessingTimeExceeded(
-    //                 start_time.elapsed(),
-    //             )),
-    //         };
-    //     }
-    //
-    //     let chunk_end = min(bundle.transactions.len(), chunk_start.saturating_add(128));
-    //     let chunk = &bundle.transactions[chunk_start..chunk_end];
-    //
-    //     // Note: these batches are dropped after execution and before record/commit, which is atypical
-    //     // compared to BankingStage which holds account locks until record + commit to avoid race conditions with
-    //     // other BankingStage threads. However, the caller of this method, BundleConsumer, will use BundleAccountLocks
-    //     // to hold RW locks across all transactions in a bundle until its processed.
-    //     let batch = if is_simulation {
-    //         bank.prepare_sequential_sanitized_batch_with_results_for_simulation(chunk)
-    //     } else {
-    //         bank.prepare_sequential_sanitized_batch_with_results(chunk)
-    //     };
-    //
-    //     debug!(
-    //         "bundle: {} batch num locks ok: {}",
-    //         bundle.bundle_id,
-    //         batch.lock_results().iter().filter(|lr| lr.is_ok()).count()
-    //     );
-    //
-    //     // Bundle locking failed if lock result returns something other than ok or AccountInUse
-    //     for (sanitied_tx, lock_result) in batch
-    //         .sanitized_transactions()
-    //         .iter()
-    //         .zip(batch.lock_results())
-    //     {
-    //         if !matches!(lock_result, Ok(()) | Err(TransactionError::AccountInUse)) {
-    //             return LoadAndExecuteBundleOutput {
-    //                 bundle_transaction_results,
-    //                 metrics,
-    //                 result: Err(LoadAndExecuteBundleError::LockError {
-    //                     signature: *sanitied_tx.signature(),
-    //                     transaction_error: lock_result.as_ref().unwrap_err().clone(),
-    //                 }),
-    //             };
-    //         }
-    //     }
-    //
-    //     let mut pre_balance_info = PreBalanceInfo::default();
-    //     let (_, collect_balances_us) = measure_us!({
-    //         if transaction_status_sender_enabled {
-    //             pre_balance_info.native =
-    //                 bank.collect_balances_with_cache(&batch, Some(account_overrides));
-    //             pre_balance_info.token = collect_token_balances(
-    //                 bank,
-    //                 &batch,
-    //                 &mut pre_balance_info.mint_decimals,
-    //                 Some(account_overrides),
-    //             );
-    //         }
-    //     });
-    //     saturating_add_assign!(metrics.collect_balances_us, collect_balances_us);
-    //
-    //     let end = min(
-    //         chunk_start.saturating_add(batch.sanitized_transactions().len()),
-    //         pre_execution_accounts.len(),
-    //     );
-    //
-    //     let m = Measure::start("accounts");
-    //     let accounts_requested = &pre_execution_accounts[chunk_start..end];
-    //     let pre_tx_execution_accounts =
-    //         get_account_transactions(bank, account_overrides, accounts_requested, &batch);
-    //     saturating_add_assign!(metrics.collect_pre_post_accounts_us, m.end_as_us());
-    //
-    //     let (mut load_and_execute_transactions_output, load_execute_us) = measure_us!(bank
-    //         .load_and_execute_transactions(
-    //             &batch,
-    //             max_age,
-    //             &mut metrics.execute_timings,
-    //             &mut metrics.errors,
-    //             TransactionProcessingConfig {
-    //                 account_overrides: Some(account_overrides),
-    //                 check_program_modification_slot: bank.check_program_modification_slot(),
-    //                 compute_budget: bank.compute_budget(),
-    //                 log_messages_bytes_limit: *log_messages_bytes_limit,
-    //                 limit_to_load_programs: true,
-    //                 recording_config: ExecutionRecordingConfig::new_single_setting(
-    //                     transaction_status_sender_enabled
-    //                 ),
-    //                 transaction_account_lock_limit: Some(bank.get_transaction_account_lock_limit()),
-    //             },
-    //         ));
-    //     debug!(
-    //         "bundle id: {} loaded_transactions: {:?}",
-    //         bundle.bundle_id, load_and_execute_transactions_output.processing_results
-    //     );
-    //     saturating_add_assign!(metrics.load_execute_us, load_execute_us);
-    //
-    //     // All transactions within a bundle are expected to be executable + not fail
-    //     // If there's any transactions that executed and failed or didn't execute due to
-    //     // unexpected failures (not locking related), bail out of bundle execution early.
-    //     if let Err((failing_tx, exec_result)) = check_bundle_execution_results(
-    //         load_and_execute_transactions_output
-    //             .processing_results
-    //             .as_slice(),
-    //         batch.sanitized_transactions(),
-    //     ) {
-    //         // TODO (LB): we should try to return partial results here for successful bundles in a parallel batch.
-    //         //  given a bundle that write locks the following accounts [[A], [B], [C]]
-    //         //  when B fails, we could return the execution results for A and C, but leave B out.
-    //         //  however, if we have bundle that write locks accounts [[A_1], [A_2], [B], [C]] and B fails
-    //         //  we'll get the results for A_1 but not [A_2], [B], [C] due to the way this loop executes.
-    //         debug!(
-    //             "bundle: {} execution error; signature: {} error: {:?}",
-    //             bundle.bundle_id,
-    //             failing_tx.signature(),
-    //             exec_result
-    //         );
-    //         return LoadAndExecuteBundleOutput {
-    //             bundle_transaction_results,
-    //             metrics,
-    //             result: Err(LoadAndExecuteBundleError::TransactionError {
-    //                 signature: *failing_tx.signature(),
-    //                 execution_result: Box::new(exec_result.clone()),
-    //             }),
-    //         };
-    //     }
-    //
-    //     // If none of the transactions were executed, most likely an AccountInUse error
-    //     // need to retry to ensure that all transactions in the bundle are executed.
-    //     if !load_and_execute_transactions_output
-    //         .processing_results
-    //         .iter()
-    //         .any(|r| r.was_executed())
-    //     {
-    //         saturating_add_assign!(metrics.num_retries, 1);
-    //         debug!(
-    //             "bundle: {} no transaction executed, retrying",
-    //             bundle.bundle_id
-    //         );
-    //         continue;
-    //     }
-    //
-    //     // Cache accounts so next iterations of loop can load cached state instead of using
-    //     // AccountsDB, which will contain stale account state because results aren't committed
-    //     // to the bank yet.
-    //     // NOTE: collect_accounts_to_store does not handle any state changes related to
-    //     // failed, non-nonce transactions.
-    //     let m = Measure::start("cache");
-    //
-    //     let ((last_blockhash, lamports_per_signature), _last_blockhash_us) =
-    //         measure_us!(bank.last_blockhash_and_lamports_per_signature());
-    //     let durable_nonce = DurableNonce::from_blockhash(&last_blockhash);
-    //
-    //     let accounts = collect_accounts_to_store(
-    //         batch.sanitized_transactions(),
-    //         &None,
-    //         &load_and_execute_transactions_output.processing_results,
-    //     )
-    //     .0;
-    //     for (pubkey, data) in accounts {
-    //         account_overrides.set_account(pubkey, Some(data.clone()));
-    //     }
-    //     saturating_add_assign!(metrics.cache_accounts_us, m.end_as_us());
-    //
-    //     let end = max(
-    //         chunk_start.saturating_add(batch.sanitized_transactions().len()),
-    //         post_execution_accounts.len(),
-    //     );
-    //
-    //     let m = Measure::start("accounts");
-    //     let accounts_requested = &post_execution_accounts[chunk_start..end];
-    //     let post_tx_execution_accounts =
-    //         get_account_transactions(bank, account_overrides, accounts_requested, &batch);
-    //     saturating_add_assign!(metrics.collect_pre_post_accounts_us, m.end_as_us());
-    //
-    //     let ((post_balances, post_token_balances), collect_balances_us) =
-    //         measure_us!(if transaction_status_sender_enabled {
-    //             let post_balances =
-    //                 bank.collect_balances_with_cache(&batch, Some(account_overrides));
-    //             let post_token_balances = collect_token_balances(
-    //                 bank,
-    //                 &batch,
-    //                 &mut pre_balance_info.mint_decimals,
-    //                 Some(account_overrides),
-    //             );
-    //             (post_balances, post_token_balances)
-    //         } else {
-    //             (
-    //                 TransactionBalances::default(),
-    //                 TransactionTokenBalances::default(),
-    //             )
-    //         });
-    //     saturating_add_assign!(metrics.collect_balances_us, collect_balances_us);
-    //
-    //     let processing_end = batch.lock_results().iter().position(|lr| lr.is_err());
-    //     if let Some(end) = processing_end {
-    //         chunk_start = chunk_start.saturating_add(end);
-    //     } else {
-    //         chunk_start = chunk_end;
-    //     }
-    //
-    //     bundle_transaction_results.push(BundleTransactionsOutput {
-    //         transactions: chunk,
-    //         load_and_execute_transactions_output,
-    //         pre_balance_info,
-    //         post_balance_info: (post_balances, post_token_balances),
-    //         pre_tx_execution_accounts,
-    //         post_tx_execution_accounts,
-    //     });
-    // }
-    //
-    // LoadAndExecuteBundleOutput {
-    //     bundle_transaction_results,
-    //     metrics,
-    //     result: Ok(()),
-    // }
+    let mut binding = AccountOverrides::default();
+    let account_overrides = account_overrides.unwrap_or(&mut binding);
+    if is_simulation {
+        bundle
+            .transactions
+            .iter()
+            .map(|tx| tx.message().account_keys())
+            .for_each(|account_keys| {
+                account_overrides.upsert_account_overrides(
+                    bank.get_account_overrides_for_simulation(&account_keys),
+                );
+
+                // An unfrozen bank's state is always changing.
+                // By taking a snapshot of the accounts we're mocking out grabbing their locks.
+                // **Note** this does not prevent race conditions, just mocks preventing them.
+                if !bank.is_frozen() {
+                    for pk in account_keys.iter() {
+                        // Save on a disk read.
+                        if account_overrides.get(pk).is_none() {
+                            account_overrides.set_account(pk, bank.get_account_shared_data(pk));
+                        }
+                    }
+                }
+            });
+    }
+
+    let mut chunk_start = 0;
+    let start_time = Instant::now();
+
+    let mut bundle_transaction_results = vec![];
+    let mut metrics = BundleExecutionMetrics::default();
+
+    while chunk_start != bundle.transactions.len() {
+        if start_time.elapsed() > *max_processing_time {
+            trace!("bundle: {} took too long to execute", bundle.bundle_id);
+            return LoadAndExecuteBundleOutput {
+                bundle_transaction_results,
+                metrics,
+                result: Err(LoadAndExecuteBundleError::ProcessingTimeExceeded(
+                    start_time.elapsed(),
+                )),
+            };
+        }
+
+        let chunk_end = min(bundle.transactions.len(), chunk_start.saturating_add(128));
+        let chunk = &bundle.transactions[chunk_start..chunk_end];
+
+        // Note: these batches are dropped after execution and before record/commit, which is atypical
+        // compared to BankingStage which holds account locks until record + commit to avoid race conditions with
+        // other BankingStage threads. However, the caller of this method, BundleConsumer, will use BundleAccountLocks
+        // to hold RW locks across all transactions in a bundle until its processed.
+        let batch = if is_simulation {
+            bank.prepare_sequential_sanitized_batch_with_results_for_simulation(chunk)
+        } else {
+            bank.prepare_sequential_sanitized_batch_with_results(chunk)
+        };
+
+        debug!(
+            "bundle: {} batch num locks ok: {}",
+            bundle.bundle_id,
+            batch.lock_results().iter().filter(|lr| lr.is_ok()).count()
+        );
+
+        // Bundle locking failed if lock result returns something other than ok or AccountInUse
+        for (sanitied_tx, lock_result) in batch
+            .sanitized_transactions()
+            .iter()
+            .zip(batch.lock_results())
+        {
+            if !matches!(lock_result, Ok(()) | Err(TransactionError::AccountInUse)) {
+                return LoadAndExecuteBundleOutput {
+                    bundle_transaction_results,
+                    metrics,
+                    result: Err(LoadAndExecuteBundleError::LockError {
+                        signature: *sanitied_tx.signature(),
+                        transaction_error: lock_result.as_ref().unwrap_err().clone(),
+                    }),
+                };
+            }
+        }
+
+        let mut pre_balance_info = PreBalanceInfo::default();
+        let (_, collect_balances_us) = measure_us!({
+            if transaction_status_sender_enabled {
+                pre_balance_info.native =
+                    bank.collect_balances_with_cache(&batch, Some(account_overrides));
+                pre_balance_info.token = collect_token_balances(
+                    bank,
+                    &batch,
+                    &mut pre_balance_info.mint_decimals,
+                    Some(account_overrides),
+                );
+            }
+        });
+        saturating_add_assign!(metrics.collect_balances_us, collect_balances_us);
+
+        let end = min(
+            chunk_start.saturating_add(batch.sanitized_transactions().len()),
+            pre_execution_accounts.len(),
+        );
+
+        let m = Measure::start("accounts");
+        let accounts_requested = &pre_execution_accounts[chunk_start..end];
+        let pre_tx_execution_accounts =
+            get_account_transactions(bank, account_overrides, accounts_requested, &batch);
+        saturating_add_assign!(metrics.collect_pre_post_accounts_us, m.end_as_us());
+
+        let (load_and_execute_transactions_output, load_execute_us) = measure_us!(bank
+            .load_and_execute_transactions(
+                &batch,
+                max_age,
+                &mut metrics.execute_timings,
+                &mut metrics.errors,
+                TransactionProcessingConfig {
+                    account_overrides: Some(account_overrides),
+                    check_program_modification_slot: bank.check_program_modification_slot(),
+                    compute_budget: bank.compute_budget(),
+                    log_messages_bytes_limit: *log_messages_bytes_limit,
+                    limit_to_load_programs: true,
+                    recording_config: ExecutionRecordingConfig::new_single_setting(
+                        transaction_status_sender_enabled
+                    ),
+                    transaction_account_lock_limit: Some(bank.get_transaction_account_lock_limit()),
+                },
+            ));
+        debug!(
+            "bundle id: {} loaded_transactions: {:?}",
+            bundle.bundle_id, load_and_execute_transactions_output.processing_results
+        );
+        saturating_add_assign!(metrics.load_execute_us, load_execute_us);
+
+        // All transactions within a bundle are expected to be executable + not fail
+        // If there's any transactions that executed and failed or didn't execute due to
+        // unexpected failures (not locking related), bail out of bundle execution early.
+        if let Err((failing_tx, exec_result)) = check_bundle_execution_results(
+            load_and_execute_transactions_output
+                .processing_results
+                .as_slice(),
+            batch.sanitized_transactions(),
+        ) {
+            // TODO (LB): we should try to return partial results here for successful bundles in a parallel batch.
+            //  given a bundle that write locks the following accounts [[A], [B], [C]]
+            //  when B fails, we could return the execution results for A and C, but leave B out.
+            //  however, if we have bundle that write locks accounts [[A_1], [A_2], [B], [C]] and B fails
+            //  we'll get the results for A_1 but not [A_2], [B], [C] due to the way this loop executes.
+            debug!(
+                "bundle: {} execution error; signature: {} error: {:?}",
+                bundle.bundle_id,
+                failing_tx.signature(),
+                exec_result
+            );
+            return LoadAndExecuteBundleOutput {
+                bundle_transaction_results,
+                metrics,
+                result: Err(LoadAndExecuteBundleError::TransactionError {
+                    signature: *failing_tx.signature(),
+                    execution_result: Box::new(exec_result.clone()),
+                }),
+            };
+        }
+
+        // If none of the transactions were executed, most likely an AccountInUse error
+        // need to retry to ensure that all transactions in the bundle are executed.
+        // TODO (LB): check this logic to ensure it covers all cases!
+        if !load_and_execute_transactions_output
+            .processing_results
+            .iter()
+            .any(|r| r.is_err())
+        {
+            saturating_add_assign!(metrics.num_retries, 1);
+            debug!(
+                "bundle: {} no transaction executed, retrying",
+                bundle.bundle_id
+            );
+            continue;
+        }
+
+        // Cache accounts so next iterations of loop can load cached state instead of using
+        // AccountsDB, which will contain stale account state because results aren't committed
+        // to the bank yet.
+        // NOTE: collect_accounts_to_store does not handle any state changes related to
+        // failed, non-nonce transactions.
+        let m = Measure::start("cache");
+        let accounts = collect_accounts_to_store(
+            batch.sanitized_transactions(),
+            &None::<Vec<SanitizedTransaction>>,
+            &load_and_execute_transactions_output.processing_results,
+        )
+        .0;
+        for (pubkey, data) in accounts {
+            account_overrides.set_account(pubkey, Some(data.clone()));
+        }
+        saturating_add_assign!(metrics.cache_accounts_us, m.end_as_us());
+
+        let end = max(
+            chunk_start.saturating_add(batch.sanitized_transactions().len()),
+            post_execution_accounts.len(),
+        );
+
+        let m = Measure::start("accounts");
+        let accounts_requested = &post_execution_accounts[chunk_start..end];
+        let post_tx_execution_accounts =
+            get_account_transactions(bank, account_overrides, accounts_requested, &batch);
+        saturating_add_assign!(metrics.collect_pre_post_accounts_us, m.end_as_us());
+
+        let ((post_balances, post_token_balances), collect_balances_us) =
+            measure_us!(if transaction_status_sender_enabled {
+                let post_balances =
+                    bank.collect_balances_with_cache(&batch, Some(account_overrides));
+                let post_token_balances = collect_token_balances(
+                    bank,
+                    &batch,
+                    &mut pre_balance_info.mint_decimals,
+                    Some(account_overrides),
+                );
+                (post_balances, post_token_balances)
+            } else {
+                (
+                    TransactionBalances::default(),
+                    TransactionTokenBalances::default(),
+                )
+            });
+        saturating_add_assign!(metrics.collect_balances_us, collect_balances_us);
+
+        let processing_end = batch.lock_results().iter().position(|lr| lr.is_err());
+        if let Some(end) = processing_end {
+            chunk_start = chunk_start.saturating_add(end);
+        } else {
+            chunk_start = chunk_end;
+        }
+
+        bundle_transaction_results.push(BundleTransactionsOutput {
+            transactions: chunk,
+            load_and_execute_transactions_output,
+            pre_balance_info,
+            post_balance_info: (post_balances, post_token_balances),
+            pre_tx_execution_accounts,
+            post_tx_execution_accounts,
+        });
+    }
+
+    LoadAndExecuteBundleOutput {
+        bundle_transaction_results,
+        metrics,
+        result: Ok(()),
+    }
 }
 
 fn get_account_transactions(
     bank: &Bank,
     account_overrides: &AccountOverrides,
     accounts: &[Option<Vec<Pubkey>>],
-    batch: &TransactionBatch<SanitizedTransaction>,
+    batch: &TransactionBatch<RuntimeTransaction<SanitizedTransaction>>,
 ) -> Vec<Option<Vec<(Pubkey, AccountSharedData)>>> {
     let iter = izip!(batch.lock_results().iter(), accounts.iter());
 
@@ -532,12 +543,14 @@ fn get_account_transactions(
 #[cfg(test)]
 mod tests {
     use {
-        crate::bundle_execution::{load_and_execute_bundle, LoadAndExecuteBundleError},
+        crate::{
+            bundle_execution::{load_and_execute_bundle, LoadAndExecuteBundleError},
+            derive_bundle_id_from_sanitized_transactions, SanitizedBundle,
+        },
         assert_matches::assert_matches,
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::{bank::Bank, bank_forks::BankForks, genesis_utils::GenesisConfigInfo},
         solana_sdk::{
-            bundle::{derive_bundle_id_from_sanitized_transactions, SanitizedBundle},
             clock::MAX_PROCESSING_AGE,
             pubkey::Pubkey,
             signature::{Keypair, Signer},
