@@ -550,12 +550,16 @@ mod tests {
         assert_matches::assert_matches,
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::{bank::Bank, bank_forks::BankForks, genesis_utils::GenesisConfigInfo},
+        solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
         solana_sdk::{
             clock::MAX_PROCESSING_AGE,
             pubkey::Pubkey,
             signature::{Keypair, Signer},
             system_transaction::transfer,
-            transaction::{SanitizedTransaction, Transaction, TransactionError},
+            transaction::{
+                MessageHash, SanitizedTransaction, Transaction, TransactionError,
+                VersionedTransaction,
+            },
         },
         std::{
             sync::{Arc, Barrier, RwLock},
@@ -581,8 +585,12 @@ mod tests {
         let transactions: Vec<_> = txs
             .iter()
             .map(|tx| {
-                SanitizedTransaction::try_from_legacy_transaction(
-                    tx.clone(),
+                let tx = VersionedTransaction::from(tx.clone());
+                RuntimeTransaction::try_create(
+                    tx,
+                    MessageHash::Compute,
+                    None,
+                    bank,
                     bank.get_reserved_account_keys(),
                 )
                 .unwrap()
@@ -644,19 +652,22 @@ mod tests {
         assert_eq!(execution_result.bundle_transaction_results.len(), 1);
         let tx_result = execution_result.bundle_transaction_results.first().unwrap();
         assert_eq!(tx_result.transactions.len(), 1);
-        assert_eq!(tx_result.transactions[0], bundle.transactions[0]);
+        assert_eq!(
+            tx_result.transactions[0].to_versioned_transaction(),
+            bundle.transactions[0].to_versioned_transaction()
+        );
 
         // make sure the transaction executed successfully
         assert_eq!(
             tx_result
                 .load_and_execute_transactions_output
-                .execution_results
+                .processing_results
                 .len(),
             1
         );
         let execution_result = tx_result
             .load_and_execute_transactions_output
-            .execution_results
+            .processing_results
             .first()
             .unwrap();
         assert!(execution_result.was_executed());

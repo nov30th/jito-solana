@@ -359,6 +359,7 @@ pub struct AccountData {
     pub data: AccountSharedData,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct TransactionSimulationResult {
     pub result: Result<()>,
     pub logs: TransactionLogMessages,

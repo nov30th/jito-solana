@@ -181,23 +181,27 @@ mod tests {
         let key2 = Pubkey::new_unique();
 
         // Add write and read-lock.
-        let result = account_locks.try_lock_accounts([(&key1, true), (&key2, false)].into_iter());
+        let result = account_locks.try_lock_accounts(
+            [(&key1, true), (&key2, false)].into_iter(),
+            None,
+            None,
+        );
         assert!(result.is_ok());
 
         // Try to add duplicate write-lock.
-        let result = account_locks.try_lock_accounts([(&key1, true)].into_iter());
+        let result = account_locks.try_lock_accounts([(&key1, true)].into_iter(), None, None);
         assert_eq!(result, Err(TransactionError::AccountInUse));
 
         // Try to add write lock on read-locked account.
-        let result = account_locks.try_lock_accounts([(&key2, true)].into_iter());
+        let result = account_locks.try_lock_accounts([(&key2, true)].into_iter(), None, None);
         assert_eq!(result, Err(TransactionError::AccountInUse));
 
         // Try to add read lock on write-locked account.
-        let result = account_locks.try_lock_accounts([(&key1, false)].into_iter());
+        let result = account_locks.try_lock_accounts([(&key1, false)].into_iter(), None, None);
         assert_eq!(result, Err(TransactionError::AccountInUse));
 
         // Add read lock on read-locked account.
-        let result = account_locks.try_lock_accounts([(&key2, false)].into_iter());
+        let result = account_locks.try_lock_accounts([(&key2, false)].into_iter(), None, None);
         assert!(result.is_ok());
 
         // Unlock write and read locks.

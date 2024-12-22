@@ -27,9 +27,8 @@ use {
     },
     solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
     solana_sdk::{
-        clock::{Slot, FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET, MAX_PROCESSING_AGE},
+        clock::{FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET, MAX_PROCESSING_AGE},
         fee::FeeBudgetLimits,
-        message::SanitizedMessage,
         pubkey::Pubkey,
         saturating_add_assign,
         timing::timestamp,
@@ -41,11 +40,9 @@ use {
         transaction_processing_result::TransactionProcessingResultExtensions,
         transaction_processor::{ExecutionRecordingConfig, TransactionProcessingConfig},
     },
-    solana_timings::ExecuteTimings,
     solana_transaction_status::PreBalanceInfo,
     std::{
         collections::HashSet,
-        num::Saturating,
         sync::{atomic::Ordering, Arc},
         time::Instant,
     },

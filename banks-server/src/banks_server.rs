@@ -7,7 +7,7 @@ use {
         BanksTransactionResultWithSimulation, TransactionConfirmationStatus, TransactionMetadata,
         TransactionSimulationDetails, TransactionStatus,
     },
-    solana_client::connection_cache::{ConnectionCache, Protocol},
+    solana_client::connection_cache::ConnectionCache,
     solana_feature_set::{move_precompile_verification_to_svm, FeatureSet},
     solana_gossip::cluster_info::ClusterInfo,
     solana_runtime::{
@@ -458,20 +458,13 @@ pub async fn start_tcp_server(
 
             let client = ConnectionCacheClient::<NullTpuInfo>::new(
                 connection_cache.clone(),
-                cluster_info.my_contact_info().tpu(Protocol::QUIC).unwrap(),
+                cluster_info.clone(),
                 None,
                 None,
                 0,
             );
 
-            SendTransactionService::new(
-                cluster_info.clone(),
-                &bank_forks,
-                receiver,
-                client,
-                5_000,
-                exit.clone(),
-            );
+            SendTransactionService::new(&bank_forks, receiver, client, 5_000, exit.clone());
 
             let server = BanksServer::new(
                 bank_forks.clone(),

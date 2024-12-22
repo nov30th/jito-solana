@@ -9,12 +9,8 @@ use {
         packet_bundle::PacketBundle,
     },
     crossbeam_channel::{Receiver, RecvTimeoutError},
-    solana_runtime::bank_forks::BankForks,
     solana_sdk::saturating_add_assign,
-    std::{
-        sync::{Arc, RwLock},
-        time::{Duration, Instant},
-    },
+    std::time::{Duration, Instant},
 };
 
 /// Results from deserializing packet batches.

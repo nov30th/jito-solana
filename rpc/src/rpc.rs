@@ -382,15 +382,11 @@ impl JsonRpcRequestProcessor {
             );
             ClusterInfo::new(contact_info, keypair, socket_addr_space)
         });
-        let tpu_address = cluster_info
-            .my_contact_info()
-            .tpu(connection_cache.protocol())
-            .unwrap();
         let (transaction_sender, transaction_receiver) = unbounded();
 
         let client = ConnectionCacheClient::<NullTpuInfo>::new(
             connection_cache.clone(),
-            tpu_address,
+            cluster_info.clone(),
             None,
             None,
             1,
@@ -7224,7 +7220,7 @@ pub mod tests {
         );
         let client = ConnectionCacheClient::<NullTpuInfo>::new(
             connection_cache.clone(),
-            cluster_info.my_contact_info().tpu(Protocol::QUIC).unwrap(),
+            cluster_info.clone(),
             None,
             None,
             1,

@@ -2522,7 +2522,6 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
-                None,
             );
 
             let post_validation_fee_payer_account = {
@@ -2584,7 +2583,6 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
-                None,
             );
 
             assert_eq!(error_counters.insufficient_funds.0, 1);

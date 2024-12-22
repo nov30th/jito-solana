@@ -66,15 +66,11 @@ impl TpuEntryNotifier {
             entries_ticks,
         } = entry_receiver.recv_timeout(Duration::from_secs(1))?;
         let slot = bank.slot();
-        let index = if slot != *current_slot {
+        if slot != *current_slot {
             *current_index = 0;
             *current_transaction_index = 0;
             *current_slot = slot;
-            0
-        } else {
-            *current_index += 1;
-            *current_index
-        };
+        }
 
         for (entry, _ticks) in &entries_ticks {
             let entry_summary = EntrySummary {

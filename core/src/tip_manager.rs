@@ -26,10 +26,7 @@ use {
         signer::Signer,
         stake_history::Epoch,
         system_program,
-        transaction::{
-            MessageHash, SanitizedTransaction, SanitizedVersionedTransaction, Transaction,
-            VersionedTransaction,
-        },
+        transaction::{MessageHash, SanitizedTransaction, Transaction, VersionedTransaction},
     },
     std::{collections::HashSet, sync::Arc},
 };

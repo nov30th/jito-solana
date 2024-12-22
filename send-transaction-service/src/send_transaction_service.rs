@@ -8,10 +8,6 @@ use {
     crossbeam_channel::{Receiver, RecvTimeoutError},
     itertools::Itertools,
     log::*,
-    solana_client::connection_cache::{ConnectionCache, Protocol},
-    solana_connection_cache::client_connection::ClientConnection as TpuConnection,
-    solana_gossip::cluster_info::ClusterInfo,
-    solana_measure::measure::Measure,
     solana_runtime::{bank::Bank, bank_forks::BankForks},
     solana_sdk::{
         hash::Hash, nonce_account, pubkey::Pubkey, saturating_add_assign, signature::Signature,
@@ -151,7 +147,6 @@ pub const MAX_RETRY_SLEEP_MS: u64 = 1_000;
 
 impl SendTransactionService {
     pub fn new<Client: TransactionClient + Clone + std::marker::Send + 'static>(
-        cluster_info: Arc<ClusterInfo>,
         bank_forks: &Arc<RwLock<BankForks>>,
         receiver: Receiver<TransactionInfo>,
         client: Client,
@@ -162,11 +157,10 @@ impl SendTransactionService {
             retry_rate_ms,
             ..Config::default()
         };
-        Self::new_with_config::<Client>(cluster_info, bank_forks, receiver, client, config, exit)
+        Self::new_with_config::<Client>(bank_forks, receiver, client, config, exit)
     }
 
     pub fn new_with_config<Client: TransactionClient + Clone + std::marker::Send + 'static>(
-        cluster_info: Arc<ClusterInfo>,
         bank_forks: &Arc<RwLock<BankForks>>,
         receiver: Receiver<TransactionInfo>,
         client: Client,
@@ -178,7 +172,6 @@ impl SendTransactionService {
         let retry_transactions = Arc::new(Mutex::new(HashMap::new()));
 
         let receive_txn_thread = Self::receive_txn_thread(
-            cluster_info.clone(),
             receiver,
             client.clone(),
             retry_transactions.clone(),
@@ -192,7 +185,6 @@ impl SendTransactionService {
         );
 
         let retry_thread = Self::retry_thread(
-            cluster_info,
             bank_forks.clone(),
             client,
             retry_transactions,
@@ -213,7 +205,6 @@ impl SendTransactionService {
     /// Thread responsible for receiving transactions from RPC clients.
     #[allow(clippy::too_many_arguments)]
     fn receive_txn_thread<Client: TransactionClient + std::marker::Send + 'static>(
-        cluster_info: Arc<ClusterInfo>,
         receiver: Receiver<TransactionInfo>,
         client: Client,
         retry_transactions: Arc<Mutex<HashMap<Signature, TransactionInfo>>>,
@@ -324,7 +315,6 @@ impl SendTransactionService {
 
     /// Thread responsible for retrying transactions
     fn retry_thread<Client: TransactionClient + std::marker::Send + 'static>(
-        cluster_info: Arc<ClusterInfo>,
         bank_forks: Arc<RwLock<BankForks>>,
         client: Client,
         retry_transactions: Arc<Mutex<HashMap<Signature, TransactionInfo>>>,
@@ -582,7 +572,6 @@ mod test {
         ));
 
         let send_transaction_service = SendTransactionService::new(
-            cluster_info,
             &bank_forks,
             receiver,
             client.clone(),

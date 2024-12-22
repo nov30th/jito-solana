@@ -7,13 +7,13 @@ use {
     solana_ledger::blockstore_processor::TransactionStatusSender,
     solana_measure::measure_us,
     solana_runtime::{
-        bank::{Bank, ProcessedTransactionCounts, TransactionBalances, TransactionBalancesSet},
+        bank::{Bank, TransactionBalances, TransactionBalancesSet},
         bank_utils,
         prioritization_fee_cache::PrioritizationFeeCache,
         vote_sender_types::ReplayVoteSender,
     },
     solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
-    solana_sdk::{hash::Hash, saturating_add_assign, transaction::SanitizedTransaction},
+    solana_sdk::{saturating_add_assign, transaction::SanitizedTransaction},
     solana_svm::transaction_commit_result::TransactionCommitResult,
     solana_transaction_status::{
         token_balances::{TransactionTokenBalances, TransactionTokenBalancesSet},

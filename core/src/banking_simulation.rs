@@ -10,7 +10,6 @@ use {
         bundle_stage::bundle_account_locker::BundleAccountLocker,
         validator::BlockProductionMethod,
     },
-    ahash::HashSet,
     bincode::deserialize_from,
     crossbeam_channel::{unbounded, Sender},
     itertools::Itertools,

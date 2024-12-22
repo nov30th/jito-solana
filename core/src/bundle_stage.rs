@@ -21,11 +21,10 @@ use {
     solana_cost_model::block_cost_limits::MAX_BLOCK_UNITS,
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::blockstore_processor::TransactionStatusSender,
-    solana_measure::{measure, measure_us},
+    solana_measure::measure_us,
     solana_poh::poh_recorder::PohRecorder,
     solana_runtime::{
-        bank_forks::BankForks, prioritization_fee_cache::PrioritizationFeeCache,
-        vote_sender_types::ReplayVoteSender,
+        prioritization_fee_cache::PrioritizationFeeCache, vote_sender_types::ReplayVoteSender,
     },
     solana_sdk::timing::AtomicInterval,
     std::{

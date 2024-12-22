@@ -16,7 +16,7 @@ use {
         RequestMiddlewareAction, ServerBuilder,
     },
     regex::Regex,
-    solana_client::connection_cache::{ConnectionCache, Protocol},
+    solana_client::connection_cache::ConnectionCache,
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
         bigtable_upload::ConfirmedBlockUploadConfig,
@@ -476,13 +476,12 @@ impl JsonRpcService {
             poh_recorder.map(|recorder| ClusterTpuInfo::new(cluster_info.clone(), recorder));
         let client = ConnectionCacheClient::new(
             connection_cache,
-            cluster_info.my_contact_info().tpu(Protocol::QUIC).unwrap(),
+            cluster_info.clone(),
             send_transaction_service_config.tpu_peers.clone(),
             leader_info,
             send_transaction_service_config.leader_forward_count,
         );
         let _send_transaction_service = SendTransactionService::new_with_config(
-            cluster_info,
             &bank_forks,
             receiver,
             client,
