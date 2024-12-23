@@ -13,7 +13,6 @@ use {
             bundle_stage_leader_metrics::BundleStageLeaderMetrics,
             committer::Committer,
         },
-        consensus_cache_updater::ConsensusCacheUpdater,
         immutable_deserialized_bundle::ImmutableDeserializedBundle,
         proxy::block_engine_stage::BlockBuilderFeeInfo,
         tip_manager::TipManager,
@@ -57,8 +56,6 @@ pub struct BundleConsumer {
     qos_service: QosService,
     log_messages_bytes_limit: Option<usize>,
 
-    consensus_cache_updater: ConsensusCacheUpdater,
-
     tip_manager: TipManager,
     last_tip_update_slot: Slot,
 
@@ -91,16 +88,16 @@ impl BundleConsumer {
         cluster_info: Arc<ClusterInfo>,
         reserved_space: BundleReservedSpaceManager,
     ) -> Self {
+        let blacklisted_accounts = HashSet::from_iter([tip_manager.tip_payment_program_id()]);
         Self {
             committer,
             transaction_recorder,
             qos_service,
             log_messages_bytes_limit,
-            consensus_cache_updater: ConsensusCacheUpdater::default(),
             tip_manager,
             // MAX because sending tips during slot 0 in tests doesn't work
             last_tip_update_slot: u64::MAX,
-            blacklisted_accounts: HashSet::default(),
+            blacklisted_accounts,
             bundle_account_locker,
             block_builder_fee_info,
             max_bundle_retry_duration,
@@ -132,7 +129,6 @@ impl BundleConsumer {
         unprocessed_transaction_storage: &mut UnprocessedTransactionStorage,
         bundle_stage_leader_metrics: &mut BundleStageLeaderMetrics,
     ) {
-        self.maybe_update_blacklist(bank_start);
         self.reserved_space.tick(&bank_start.working_bank);
 
         let reached_end_of_slot = unprocessed_transaction_storage.process_bundles(
@@ -165,28 +161,6 @@ impl BundleConsumer {
                 .set_end_of_slot_unprocessed_buffer_len(
                     unprocessed_transaction_storage.len() as u64
                 );
-        }
-    }
-
-    /// Blacklist is updated with the tip payment program + any consensus accounts.
-    fn maybe_update_blacklist(&mut self, bank_start: &BankStart) {
-        if self
-            .consensus_cache_updater
-            .maybe_update(&bank_start.working_bank)
-        {
-            self.blacklisted_accounts = self
-                .consensus_cache_updater
-                .consensus_accounts_cache()
-                .union(&HashSet::from_iter([self
-                    .tip_manager
-                    .tip_payment_program_id()]))
-                .cloned()
-                .collect();
-
-            debug!(
-                "updated blacklist with {} accounts",
-                self.blacklisted_accounts.len()
-            );
         }
     }
 

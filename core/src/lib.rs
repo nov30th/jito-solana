@@ -19,7 +19,6 @@ pub mod cluster_slots_service;
 pub mod commitment_service;
 pub mod completed_data_sets_service;
 pub mod consensus;
-pub mod consensus_cache_updater;
 pub mod cost_update_service;
 pub mod drop_bank_service;
 pub mod fetch_stage;
