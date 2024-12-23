@@ -530,7 +530,7 @@ impl UnprocessedTransactionStorage {
         match self {
             Self::LocalTransactionStorage(_) => (),
             Self::VoteStorage(vote_storage) => vote_storage.cache_epoch_boundary_info(bank),
-            UnprocessedTransactionStorage::BundleStorage(_) => (), // TODO (LB): what this do?
+            UnprocessedTransactionStorage::BundleStorage(_) => (),
         }
     }
 }

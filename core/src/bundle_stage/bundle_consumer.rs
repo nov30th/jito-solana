@@ -42,6 +42,11 @@ use {
     },
 };
 
+type ReserveBundleBlockspaceResult<'a> = BundleExecutionResult<(
+    Vec<transaction::Result<TransactionCost<'a, RuntimeTransaction<SanitizedTransaction>>>>,
+    u64,
+)>;
+
 pub struct ExecuteRecordCommitResult {
     commit_transaction_details: Vec<CommitTransactionDetails>,
     result: BundleExecutionResult<()>,
@@ -437,10 +442,7 @@ impl BundleConsumer {
         reserved_space: &BundleReservedSpaceManager,
         sanitized_bundle: &'a SanitizedBundle,
         bank: &Arc<Bank>,
-    ) -> BundleExecutionResult<(
-        Vec<transaction::Result<TransactionCost<'a, RuntimeTransaction<SanitizedTransaction>>>>,
-        u64,
-    )> {
+    ) -> ReserveBundleBlockspaceResult<'a> {
         let mut write_cost_tracker = bank.write_cost_tracker().unwrap();
 
         // set the block cost limit to the original block cost limit, run the select + accumulate
@@ -1069,7 +1071,7 @@ mod tests {
         let deserialized_bundle = BundlePacketDeserializer::deserialize_bundle(
             packet_bundles.get_mut(0).unwrap(),
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
         let mut error_metrics = TransactionErrorMetrics::default();
@@ -1226,8 +1228,7 @@ mod tests {
         };
 
         let deserialized_bundle =
-            BundlePacketDeserializer::deserialize_bundle(&mut packet_bundle, None, &|p| Ok(p))
-                .unwrap();
+            BundlePacketDeserializer::deserialize_bundle(&mut packet_bundle, None, &Ok).unwrap();
         let mut error_metrics = TransactionErrorMetrics::default();
         let sanitized_bundle = deserialized_bundle
             .build_sanitized_bundle(

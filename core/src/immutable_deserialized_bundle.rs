@@ -230,7 +230,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
 
@@ -258,7 +258,7 @@ mod tests {
                     bundle_id: String::default(),
                 },
                 None,
-                &|p| Ok(p)
+                &Ok
             ),
             Err(DeserializedBundleError::EmptyBatch)
         );
@@ -285,7 +285,7 @@ mod tests {
                     bundle_id: String::default(),
                 },
                 Some(5),
-                &|p| Ok(p)
+                &Ok
             ),
             Err(DeserializedBundleError::TooManyPackets)
         );
@@ -306,7 +306,7 @@ mod tests {
                     bundle_id: String::default(),
                 },
                 Some(5),
-                &|p| Ok(p)
+                &Ok
             ),
             Err(DeserializedBundleError::MarkedDiscard)
         );
@@ -328,7 +328,7 @@ mod tests {
                     bundle_id: String::default(),
                 },
                 None,
-                &|p| Ok(p)
+                &Ok
             ),
             Err(DeserializedBundleError::SignatureVerificationFailure)
         );
@@ -361,7 +361,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
 
@@ -398,7 +398,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
 
@@ -428,7 +428,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
 
@@ -464,7 +464,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
 
@@ -494,7 +494,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
-            &|p| Ok(p),
+            &Ok,
         )
         .unwrap();
 

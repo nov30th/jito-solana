@@ -148,7 +148,7 @@ mod tests {
         crossbeam_channel::unbounded,
         solana_ledger::genesis_utils::create_genesis_config,
         solana_perf::packet::PacketBatch,
-        solana_runtime::{bank::Bank, genesis_utils::GenesisConfigInfo},
+        solana_runtime::genesis_utils::GenesisConfigInfo,
         solana_sdk::{packet::Packet, signature::Signer, system_transaction::transfer},
     };
 
@@ -171,8 +171,6 @@ mod tests {
             mint_keypair,
             ..
         } = create_genesis_config(10_000);
-        let (_, bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
-
         let (sender, receiver) = unbounded();
 
         let deserializer = BundlePacketDeserializer::new(receiver, Some(10));
@@ -196,7 +194,7 @@ mod tests {
         sender.send(packet_bundles.clone()).unwrap();
 
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
+            .receive_bundles(Duration::from_millis(100), 5, &Ok)
             .unwrap();
         // this is confusing, but it's sent as one batch
         assert_eq!(bundles.deserialized_bundles.len(), 10);
@@ -204,7 +202,7 @@ mod tests {
 
         // make sure empty
         assert_matches!(
-            deserializer.receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p)),
+            deserializer.receive_bundles(Duration::from_millis(100), 5, &Ok),
             Err(RecvTimeoutError::Timeout)
         );
 
@@ -212,19 +210,19 @@ mod tests {
         sender.send(packet_bundles.clone()).unwrap();
         sender.send(packet_bundles).unwrap();
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
+            .receive_bundles(Duration::from_millis(100), 5, &Ok)
             .unwrap();
         assert_eq!(bundles.deserialized_bundles.len(), 10);
         assert_eq!(bundles.num_dropped_bundles, 0);
 
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
+            .receive_bundles(Duration::from_millis(100), 5, &Ok)
             .unwrap();
         assert_eq!(bundles.deserialized_bundles.len(), 10);
         assert_eq!(bundles.num_dropped_bundles, 0);
 
         assert_matches!(
-            deserializer.receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p)),
+            deserializer.receive_bundles(Duration::from_millis(100), 5, &Ok),
             Err(RecvTimeoutError::Timeout)
         );
     }
@@ -232,14 +230,6 @@ mod tests {
     #[test]
     fn test_receive_bundles_bad_bundles() {
         solana_logger::setup();
-
-        let GenesisConfigInfo {
-            genesis_config,
-            mint_keypair: _,
-            ..
-        } = create_genesis_config(10_000);
-        let (_, bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
-
         let (sender, receiver) = unbounded();
 
         let deserializer = BundlePacketDeserializer::new(receiver, Some(10));
@@ -253,7 +243,7 @@ mod tests {
         sender.send(packet_bundles).unwrap();
 
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
+            .receive_bundles(Duration::from_millis(100), 5, &Ok)
             .unwrap();
         // this is confusing, but it's sent as one batch
         assert_eq!(bundles.deserialized_bundles.len(), 0);

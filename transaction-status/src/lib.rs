@@ -852,7 +852,7 @@ pub struct TransactionByAddrInfo {
     pub block_time: Option<UnixTimestamp>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PreBalanceInfo {
     pub native: Vec<Vec<u64>>,
     pub token: Vec<Vec<TransactionTokenBalance>>,

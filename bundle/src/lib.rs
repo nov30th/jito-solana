@@ -62,7 +62,7 @@ pub enum BundleExecutionError {
     TipError(#[from] TipError),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SanitizedBundle {
     pub transactions: Vec<RuntimeTransaction<SanitizedTransaction>>,
     pub bundle_id: String,

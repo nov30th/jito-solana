@@ -66,11 +66,10 @@ impl Committer {
         let (commit_transaction_details, commit_times): (Vec<_>, Vec<_>) = transaction_output
             .iter_mut()
             .map(|bundle_results| {
-                let sanitized_transactions = bundle_results.transactions().to_vec();
                 let execution_results = bundle_results.execution_results().to_vec();
 
                 let (commit_results, commit_time_us) = measure_us!(bank.commit_transactions(
-                    &sanitized_transactions,
+                    bundle_results.transactions(),
                     execution_results,
                     &bundle_results
                         .load_and_execute_transactions_output()
@@ -101,19 +100,18 @@ impl Committer {
 
                 let ((), find_and_send_votes_us) = measure_us!({
                     bank_utils::find_and_send_votes(
-                        &sanitized_transactions,
+                        bundle_results.transactions(),
                         &commit_results,
                         Some(&self.replay_vote_sender),
                     );
 
                     let post_balance_info = bundle_results.post_balance_info().clone();
-                    let pre_balance_info = bundle_results.pre_balance_info();
 
                     self.collect_balances_and_send_status_batch(
                         commit_results,
                         bank,
-                        sanitized_transactions,
-                        pre_balance_info,
+                        bundle_results.transactions(),
+                        &mut bundle_results.pre_balance_info().clone(),
                         post_balance_info,
                         starting_transaction_index,
                     );
@@ -149,7 +147,7 @@ impl Committer {
         &self,
         commit_results: Vec<TransactionCommitResult>,
         bank: &Arc<Bank>,
-        sanitized_transactions: Vec<RuntimeTransaction<SanitizedTransaction>>,
+        sanitized_transactions: &[RuntimeTransaction<SanitizedTransaction>],
         pre_balance_info: &mut PreBalanceInfo,
         (post_balances, post_token_balances): (TransactionBalances, TransactionTokenBalances),
         starting_transaction_index: Option<usize>,
@@ -170,7 +168,6 @@ impl Committer {
                 .collect();
             transaction_status_sender.send_transaction_status_batch(
                 bank.slot(),
-                // TODO (LB): don't clone
                 sanitized_transactions
                     .iter()
                     .map(|s| s.deref().clone())

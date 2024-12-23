@@ -163,8 +163,8 @@ impl<'a> BundleTransactionsOutput<'a> {
         &self.load_and_execute_transactions_output.processing_results
     }
 
-    pub fn pre_balance_info(&mut self) -> &mut PreBalanceInfo {
-        &mut self.pre_balance_info
+    pub fn pre_balance_info(&self) -> &PreBalanceInfo {
+        &self.pre_balance_info
     }
 
     pub fn post_balance_info(&self) -> &(TransactionBalances, TransactionTokenBalances) {
@@ -820,10 +820,13 @@ mod tests {
                 .len(),
             3
         );
-        assert!(execution_result.bundle_transaction_results[0]
+        assert!(execution_result
+            .bundle_transaction_results
+            .first()
+            .unwrap()
             .load_and_execute_transactions_output
             .processing_results
-            .get(0)
+            .first()
             .unwrap()
             .as_ref()
             .unwrap()
@@ -903,7 +906,7 @@ mod tests {
         assert!(execution_result.bundle_transaction_results[1]
             .load_and_execute_transactions_output
             .processing_results
-            .get(0)
+            .first()
             .unwrap()
             .as_ref()
             .unwrap()
@@ -973,7 +976,7 @@ mod tests {
         assert!(execution_result.bundle_transaction_results[2]
             .load_and_execute_transactions_output
             .processing_results
-            .get(0)
+            .first()
             .unwrap()
             .as_ref()
             .unwrap()

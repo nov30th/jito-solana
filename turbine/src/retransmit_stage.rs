@@ -390,6 +390,7 @@ fn retransmit_shred(
 /// * `leader_schedule_cache` - The leader schedule to verify shreds
 /// * `cluster_info` - This structure needs to be updated and populated by the bank and via gossip.
 /// * `r` - Receive channel for shreds to be retransmitted to all the layer 1 nodes.
+#[allow(clippy::too_many_arguments)]
 pub fn retransmitter(
     sockets: Arc<Vec<UdpSocket>>,
     quic_endpoint_sender: AsyncSender<(SocketAddr, Bytes)>,
@@ -448,6 +449,7 @@ pub struct RetransmitStage {
 }
 
 impl RetransmitStage {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         bank_forks: Arc<RwLock<BankForks>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
