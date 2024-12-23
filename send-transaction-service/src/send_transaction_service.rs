@@ -542,7 +542,7 @@ mod test {
             transaction_client::{ConnectionCacheClient, TpuClientNextClient},
         },
         crossbeam_channel::{bounded, unbounded},
-        solana_gossip::contact_info::ContactInfo,
+        solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo, socketaddr},
         solana_sdk::{
             account::AccountSharedData,
             genesis_config::create_genesis_config,
@@ -553,7 +553,7 @@ mod test {
             timing::timestamp,
         },
         solana_streamer::socket::SocketAddrSpace,
-        std::ops::Sub,
+        std::{net::Ipv4Addr, ops::Sub},
         tokio::runtime::Handle,
     };
 
@@ -562,14 +562,13 @@ mod test {
         let bank_forks = BankForks::new_rw_arc(bank);
         let (sender, receiver) = unbounded();
 
-        let client = C::create_client(maybe_runtime, "127.0.0.1:0".parse().unwrap(), None, 1);
-
         let node_keypair = Arc::new(Keypair::new());
         let cluster_info = Arc::new(ClusterInfo::new(
             ContactInfo::new_localhost(&node_keypair.pubkey(), timestamp()),
             node_keypair,
             SocketAddrSpace::Unspecified,
         ));
+        let client = C::create_client(maybe_runtime, cluster_info, None, 1);
 
         let send_transaction_service = SendTransactionService::new(
             &bank_forks,
@@ -610,21 +609,15 @@ mod test {
         };
 
         let exit = Arc::new(AtomicBool::new(false));
-        let client = C::create_client(maybe_runtime, "127.0.0.1:0".parse().unwrap(), None, 1);
         let node_keypair = Arc::new(Keypair::new());
         let cluster_info = Arc::new(ClusterInfo::new(
             ContactInfo::new_localhost(&node_keypair.pubkey(), timestamp()),
             node_keypair,
             SocketAddrSpace::Unspecified,
         ));
-        let _send_transaction_service = SendTransactionService::new(
-            cluster_info,
-            &bank_forks,
-            receiver,
-            client.clone(),
-            1000,
-            exit.clone(),
-        );
+        let client = C::create_client(maybe_runtime, cluster_info, None, 1);
+        let _send_transaction_service =
+            SendTransactionService::new(&bank_forks, receiver, client.clone(), 1000, exit.clone());
 
         sender.send(dummy_tx_info()).unwrap();
 
@@ -713,9 +706,18 @@ mod test {
             ),
         );
 
+        let cluster_info = Arc::new({
+            let keypair = Arc::new(Keypair::new());
+            let contact_info = ContactInfo::new_with_socketaddr(
+                &keypair.pubkey(),
+                &socketaddr!(Ipv4Addr::LOCALHOST, 1234),
+            );
+            ClusterInfo::new(contact_info, keypair, SocketAddrSpace::Unspecified)
+        });
+
         let client = C::create_client(
             maybe_runtime,
-            "127.0.0.1:0".parse().unwrap(),
+            cluster_info,
             config.tpu_peers,
             leader_forward_count,
         );
@@ -998,9 +1000,15 @@ mod test {
             ),
         );
         let stats = SendTransactionServiceStats::default();
+        let node_keypair = Arc::new(Keypair::new());
+        let cluster_info = Arc::new(ClusterInfo::new(
+            ContactInfo::new_localhost(&node_keypair.pubkey(), timestamp()),
+            node_keypair,
+            SocketAddrSpace::Unspecified,
+        ));
         let client = C::create_client(
             maybe_runtime,
-            "127.0.0.1:0".parse().unwrap(),
+            cluster_info,
             config.tpu_peers,
             leader_forward_count,
         );

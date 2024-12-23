@@ -276,14 +276,16 @@ mod tests {
 
         let mut transaction_errors = TransactionErrorMetrics::default();
 
-        let sanitized_bundle0 = ImmutableDeserializedBundle::new(&mut packet_bundle0, None)
-            .unwrap()
-            .build_sanitized_bundle(&bank, &HashSet::default(), &mut transaction_errors)
-            .expect("sanitize bundle 0");
-        let sanitized_bundle1 = ImmutableDeserializedBundle::new(&mut packet_bundle1, None)
-            .unwrap()
-            .build_sanitized_bundle(&bank, &HashSet::default(), &mut transaction_errors)
-            .expect("sanitize bundle 1");
+        let sanitized_bundle0 =
+            ImmutableDeserializedBundle::new(&mut packet_bundle0, None, &|p| Ok(p))
+                .unwrap()
+                .build_sanitized_bundle(&bank, &HashSet::default(), &mut transaction_errors)
+                .expect("sanitize bundle 0");
+        let sanitized_bundle1 =
+            ImmutableDeserializedBundle::new(&mut packet_bundle1, None, &|p| Ok(p))
+                .unwrap()
+                .build_sanitized_bundle(&bank, &HashSet::default(), &mut transaction_errors)
+                .expect("sanitize bundle 1");
 
         let locked_bundle0 = bundle_account_locker
             .prepare_locked_bundle(&sanitized_bundle0, &bank)

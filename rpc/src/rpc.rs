@@ -3323,6 +3323,8 @@ pub mod utils {
             config::RpcSimulateTransactionAccountsConfig,
         },
         solana_sdk::{account::AccountSharedData, pubkey::Pubkey},
+        solana_svm::transaction_processing_result::TransactionProcessingResultExtensions,
+        solana_transaction_status::UiTransactionReturnData,
         std::str::FromStr,
     };
 
@@ -3348,81 +3350,86 @@ pub mod utils {
         bundle_execution_result: LoadAndExecuteBundleOutput,
         rpc_config: RpcSimulateBundleConfig,
     ) -> Result<RpcSimulateBundleResult, Error> {
-        Err(Error::internal_error())
-        // let summary = match bundle_execution_result.result() {
-        //     Ok(_) => RpcBundleSimulationSummary::Succeeded,
-        //     Err(e) => {
-        //         let tx_signature = match e {
-        //             LoadAndExecuteBundleError::TransactionError { signature, .. }
-        //             | LoadAndExecuteBundleError::LockError { signature, .. } => {
-        //                 Some(signature.to_string())
-        //             }
-        //             _ => None,
-        //         };
-        //         RpcBundleSimulationSummary::Failed {
-        //             error: RpcBundleExecutionError::from(BundleExecutionError::TransactionFailure(
-        //                 e.clone(),
-        //             )),
-        //             tx_signature,
-        //         }
-        //     }
-        // };
-        //
-        // let mut transaction_results = Vec::new();
-        // for bundle_output in bundle_execution_result.bundle_transaction_results() {
-        //     for (index, execution_result) in bundle_output
-        //         .execution_results()
-        //         .iter()
-        //         .enumerate()
-        //         .filter(|(_, result)| result.was_executed())
-        //     {
-        //         // things are filtered by was_executed, so safe to unwrap here
-        //         let result = execution_result.flattened_result();
-        //         let details = execution_result.details().unwrap();
-        //
-        //         let account_config = rpc_config
-        //             .pre_execution_accounts_configs
-        //             .get(transaction_results.len())
-        //             .ok_or_else(|| Error::invalid_params("the length of pre_execution_accounts_configs must match the number of transactions"))?;
-        //         let account_encoding = account_config
-        //             .as_ref()
-        //             .and_then(|config| config.encoding)
-        //             .unwrap_or(UiAccountEncoding::Base64);
-        //
-        //         let pre_execution_accounts = if let Some(pre_tx_accounts) =
-        //             bundle_output.pre_tx_execution_accounts().get(index)
-        //         {
-        //             try_encode_accounts(pre_tx_accounts, account_encoding)?
-        //         } else {
-        //             None
-        //         };
-        //
-        //         let post_execution_accounts = if let Some(post_tx_accounts) =
-        //             bundle_output.post_tx_execution_accounts().get(index)
-        //         {
-        //             try_encode_accounts(post_tx_accounts, account_encoding)?
-        //         } else {
-        //             None
-        //         };
-        //
-        //         transaction_results.push(RpcSimulateBundleTransactionResult {
-        //             err: match result {
-        //                 Ok(_) => None,
-        //                 Err(e) => Some(e),
-        //             },
-        //             logs: details.log_messages.clone(),
-        //             pre_execution_accounts,
-        //             post_execution_accounts,
-        //             units_consumed: Some(details.executed_units),
-        //             return_data: details.return_data.clone().map(|data| data.into()),
-        //         });
-        //     }
-        // }
-        //
-        // Ok(RpcSimulateBundleResult {
-        //     summary,
-        //     transaction_results,
-        // })
+        let summary = match bundle_execution_result.result() {
+            Ok(_) => RpcBundleSimulationSummary::Succeeded,
+            Err(e) => {
+                let tx_signature = match e {
+                    LoadAndExecuteBundleError::TransactionError { signature, .. }
+                    | LoadAndExecuteBundleError::LockError { signature, .. } => {
+                        Some(signature.to_string())
+                    }
+                    _ => None,
+                };
+                RpcBundleSimulationSummary::Failed {
+                    error: RpcBundleExecutionError::from(BundleExecutionError::TransactionFailure(
+                        e.clone(),
+                    )),
+                    tx_signature,
+                }
+            }
+        };
+
+        let mut transaction_results = Vec::new();
+        for bundle_output in bundle_execution_result.bundle_transaction_results() {
+            for (index, execution_result) in bundle_output
+                .execution_results()
+                .iter()
+                .enumerate()
+                .filter(|(_, result)| result.is_ok())
+            {
+                // things are filtered by was_executed, so safe to unwrap here
+                let result = execution_result.flattened_result();
+                let details = execution_result.as_ref().unwrap().execution_details();
+
+                let account_config = rpc_config
+                    .pre_execution_accounts_configs
+                    .get(transaction_results.len())
+                    .ok_or_else(|| Error::invalid_params("the length of pre_execution_accounts_configs must match the number of transactions"))?;
+                let account_encoding = account_config
+                    .as_ref()
+                    .and_then(|config| config.encoding)
+                    .unwrap_or(UiAccountEncoding::Base64);
+
+                let pre_execution_accounts = if let Some(pre_tx_accounts) =
+                    bundle_output.pre_tx_execution_accounts().get(index)
+                {
+                    try_encode_accounts(pre_tx_accounts, account_encoding)?
+                } else {
+                    None
+                };
+
+                let post_execution_accounts = if let Some(post_tx_accounts) =
+                    bundle_output.post_tx_execution_accounts().get(index)
+                {
+                    try_encode_accounts(post_tx_accounts, account_encoding)?
+                } else {
+                    None
+                };
+
+                transaction_results.push(RpcSimulateBundleTransactionResult {
+                    err: match result {
+                        Ok(_) => None,
+                        Err(e) => Some(e),
+                    },
+                    logs: details.map(|d| d.log_messages.clone()).unwrap_or_default(),
+                    pre_execution_accounts,
+                    post_execution_accounts,
+                    units_consumed: Some(details.map(|d| d.executed_units).unwrap_or(0)),
+                    return_data: details
+                        .map(|d| {
+                            d.return_data
+                                .as_ref()
+                                .map(|data| UiTransactionReturnData::from(data.clone()))
+                        })
+                        .unwrap_or_default(),
+                });
+            }
+        }
+
+        Ok(RpcSimulateBundleResult {
+            summary,
+            transaction_results,
+        })
     }
 
     pub fn account_configs_to_accounts(
@@ -3465,14 +3472,12 @@ pub mod rpc_full {
             RpcBundleRequest, RpcSimulateBundleConfig, RpcSimulateBundleResult,
             SimulationSlotConfig,
         },
-        solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
         solana_sdk::{
             bundle::derive_bundle_id,
             clock::MAX_PROCESSING_AGE,
             message::{SanitizedVersionedMessage, VersionedMessage},
         },
-        solana_transaction_status::{parse_ui_inner_instructions, UiInnerInstructions},
-        std::ops::Deref,
+        solana_transaction_status::parse_ui_inner_instructions,
     };
 
     #[rpc]
@@ -4090,8 +4095,6 @@ pub mod rpc_full {
             ))
         }
 
-        // TODO (LB): probably want to add a max transaction size and max account return size and max
-        // allowable simulation time
         fn simulate_bundle(
             &self,
             meta: Self::Metadata,
@@ -6950,7 +6953,7 @@ pub mod tests {
         );
         let client = ConnectionCacheClient::<NullTpuInfo>::new(
             connection_cache.clone(),
-            tpu_address,
+            cluster_info,
             None,
             None,
             1,

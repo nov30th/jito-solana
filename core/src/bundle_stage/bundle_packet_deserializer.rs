@@ -155,7 +155,9 @@ mod tests {
     #[test]
     fn test_deserialize_and_collect_bundles_empty() {
         let results =
-            BundlePacketDeserializer::deserialize_and_collect_bundles(0, &mut [], false, Some(5));
+            BundlePacketDeserializer::deserialize_and_collect_bundles(0, &mut [], Some(5), &|p| {
+                Ok(p)
+            });
         assert_eq!(results.deserialized_bundles.len(), 0);
         assert_eq!(results.num_dropped_bundles, 0);
     }
@@ -173,7 +175,7 @@ mod tests {
 
         let (sender, receiver) = unbounded();
 
-        let deserializer = BundlePacketDeserializer::new(receiver, bank_forks, Some(10));
+        let deserializer = BundlePacketDeserializer::new(receiver, Some(10));
 
         let packet_bundles: Vec<_> = (0..10)
             .map(|_| PacketBundle {
@@ -194,7 +196,7 @@ mod tests {
         sender.send(packet_bundles.clone()).unwrap();
 
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5)
+            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
             .unwrap();
         // this is confusing, but it's sent as one batch
         assert_eq!(bundles.deserialized_bundles.len(), 10);
@@ -202,7 +204,7 @@ mod tests {
 
         // make sure empty
         assert_matches!(
-            deserializer.receive_bundles(Duration::from_millis(100), 5),
+            deserializer.receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p)),
             Err(RecvTimeoutError::Timeout)
         );
 
@@ -210,19 +212,19 @@ mod tests {
         sender.send(packet_bundles.clone()).unwrap();
         sender.send(packet_bundles).unwrap();
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5)
+            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
             .unwrap();
         assert_eq!(bundles.deserialized_bundles.len(), 10);
         assert_eq!(bundles.num_dropped_bundles, 0);
 
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5)
+            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
             .unwrap();
         assert_eq!(bundles.deserialized_bundles.len(), 10);
         assert_eq!(bundles.num_dropped_bundles, 0);
 
         assert_matches!(
-            deserializer.receive_bundles(Duration::from_millis(100), 5),
+            deserializer.receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p)),
             Err(RecvTimeoutError::Timeout)
         );
     }
@@ -240,7 +242,7 @@ mod tests {
 
         let (sender, receiver) = unbounded();
 
-        let deserializer = BundlePacketDeserializer::new(receiver, bank_forks, Some(10));
+        let deserializer = BundlePacketDeserializer::new(receiver, Some(10));
 
         let packet_bundles: Vec<_> = (0..10)
             .map(|_| PacketBundle {
@@ -251,7 +253,7 @@ mod tests {
         sender.send(packet_bundles).unwrap();
 
         let bundles = deserializer
-            .receive_bundles(Duration::from_millis(100), 5)
+            .receive_bundles(Duration::from_millis(100), 5, &|p| Ok(p))
             .unwrap();
         // this is confusing, but it's sent as one batch
         assert_eq!(bundles.deserialized_bundles.len(), 0);

@@ -1757,6 +1757,7 @@ mod tests {
                         .collect_vec(),
                 )
             },
+            &HashSet::default(),
         );
 
         // All packets should remain in the transaction storage

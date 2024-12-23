@@ -166,7 +166,8 @@ where
 #[derive(Clone)]
 pub struct SendTransactionServiceLeaderUpdater<T: TpuInfoWithSendStatic> {
     leader_info_provider: CurrentLeaderInfo<T>,
-    my_tpu_address: SocketAddr,
+    // use cluster_info to account for changing TPU address with relayer
+    cluster_info: Arc<ClusterInfo>,
     tpu_peers: Option<Vec<SocketAddr>>,
 }
 
@@ -182,10 +183,18 @@ where
             .map(|leader_info| {
                 leader_info.get_leader_tpus(lookahead_leaders as u64, Protocol::QUIC)
             })
-            .filter(|addresses| !addresses.is_empty())
-            .unwrap_or_else(|| vec![&self.my_tpu_address]);
+            .filter(|addresses| !addresses.is_empty());
         let mut all_peers = self.tpu_peers.clone().unwrap_or_default();
-        all_peers.extend(discovered_peers.into_iter().cloned());
+        if let Some(discovered_peers) = discovered_peers {
+            all_peers.extend(discovered_peers.into_iter().cloned());
+        } else {
+            all_peers.push(
+                self.cluster_info
+                    .my_contact_info()
+                    .tpu(Protocol::QUIC)
+                    .unwrap(),
+            );
+        }
         all_peers
     }
     async fn stop(&mut self) {}
@@ -229,7 +238,7 @@ where
 {
     pub fn new(
         runtime_handle: Handle,
-        my_tpu_address: SocketAddr,
+        cluster_info: Arc<ClusterInfo>,
         tpu_peers: Option<Vec<SocketAddr>>,
         leader_info: Option<T>,
         leader_forward_count: u64,
@@ -248,7 +257,7 @@ where
         let leader_updater: SendTransactionServiceLeaderUpdater<T> =
             SendTransactionServiceLeaderUpdater {
                 leader_info_provider,
-                my_tpu_address,
+                cluster_info,
                 tpu_peers,
             };
         let config = Self::create_config(identity, leader_forward_count as usize);

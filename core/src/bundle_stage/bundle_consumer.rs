@@ -617,16 +617,7 @@ impl BundleConsumer {
         execute_and_commit_timings
             .execute_timings
             .accumulate(&execution_metrics.execute_timings);
-
-        let mut transaction_error_counter = TransactionErrorMetrics::default();
-        bundle_execution_results
-            .bundle_transaction_results()
-            .iter()
-            .for_each(|r| {
-                // TODO (LB): fix this
-                // transaction_error_counter
-                //     .accumulate(&r.load_and_execute_transactions_output().error_counters);
-            });
+        let transaction_error_counter = execution_metrics.errors.clone();
 
         debug!(
             "bundle: {} executed, is_ok: {}",
@@ -762,6 +753,7 @@ mod tests {
         crossbeam_channel::{unbounded, Receiver},
         jito_tip_distribution::sdk::derive_tip_distribution_account_address,
         rand::{thread_rng, RngCore},
+        solana_bundle::SanitizedBundle,
         solana_cost_model::{block_cost_limits::MAX_BLOCK_UNITS, cost_model::CostModel},
         solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo},
         solana_ledger::{
@@ -781,8 +773,9 @@ mod tests {
             installed_scheduler_pool::BankWithScheduler,
             prioritization_fee_cache::PrioritizationFeeCache,
         },
+        solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
         solana_sdk::{
-            bundle::{derive_bundle_id, SanitizedBundle},
+            bundle::derive_bundle_id,
             clock::MAX_PROCESSING_AGE,
             fee_calculator::{FeeRateGovernor, DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE},
             genesis_config::ClusterType,
@@ -794,7 +787,7 @@ mod tests {
             rent::Rent,
             signature::{Keypair, Signer},
             system_transaction::transfer,
-            transaction::{SanitizedTransaction, TransactionError, VersionedTransaction},
+            transaction::{TransactionError, VersionedTransaction},
             vote::state::VoteState,
         },
         solana_streamer::socket::SocketAddrSpace,
@@ -1075,8 +1068,8 @@ mod tests {
         );
         let deserialized_bundle = BundlePacketDeserializer::deserialize_bundle(
             packet_bundles.get_mut(0).unwrap(),
-            false,
             None,
+            &|p| Ok(p),
         )
         .unwrap();
         let mut error_metrics = TransactionErrorMetrics::default();
@@ -1233,7 +1226,8 @@ mod tests {
         };
 
         let deserialized_bundle =
-            BundlePacketDeserializer::deserialize_bundle(&mut packet_bundle, false, None).unwrap();
+            BundlePacketDeserializer::deserialize_bundle(&mut packet_bundle, None, &|p| Ok(p))
+                .unwrap();
         let mut error_metrics = TransactionErrorMetrics::default();
         let sanitized_bundle = deserialized_bundle
             .build_sanitized_bundle(
@@ -1463,7 +1457,7 @@ mod tests {
 
         let keypair1 = Keypair::new();
         let keypair2 = Keypair::new();
-        let transfer_tx = SanitizedTransaction::from_transaction_for_tests(transfer(
+        let transfer_tx = RuntimeTransaction::from_transaction_for_tests(transfer(
             &keypair1,
             &keypair2.pubkey(),
             1,
@@ -1505,13 +1499,13 @@ mod tests {
 
         let keypair1 = Keypair::new();
         let keypair2 = Keypair::new();
-        let transfer_tx1 = SanitizedTransaction::from_transaction_for_tests(transfer(
+        let transfer_tx1 = RuntimeTransaction::from_transaction_for_tests(transfer(
             &keypair1,
             &keypair2.pubkey(),
             1,
             bank.parent_hash(),
         ));
-        let transfer_tx2 = SanitizedTransaction::from_transaction_for_tests(transfer(
+        let transfer_tx2 = RuntimeTransaction::from_transaction_for_tests(transfer(
             &keypair1,
             &keypair2.pubkey(),
             2,

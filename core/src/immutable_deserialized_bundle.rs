@@ -230,6 +230,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
+            &|p| Ok(p),
         )
         .unwrap();
 
@@ -250,13 +251,14 @@ mod tests {
 
     #[test]
     fn test_empty_batch_fails_to_init() {
-        assert_eq!(
+        assert_matches!(
             ImmutableDeserializedBundle::new(
                 &mut PacketBundle {
                     batch: PacketBatch::new(vec![]),
                     bundle_id: String::default(),
                 },
                 None,
+                &|p| Ok(p)
             ),
             Err(DeserializedBundleError::EmptyBatch)
         );
@@ -266,7 +268,7 @@ mod tests {
     fn test_too_many_packets_fails_to_init() {
         let kp = Keypair::new();
 
-        assert_eq!(
+        assert_matches!(
             ImmutableDeserializedBundle::new(
                 &mut PacketBundle {
                     batch: PacketBatch::new(
@@ -283,6 +285,7 @@ mod tests {
                     bundle_id: String::default(),
                 },
                 Some(5),
+                &|p| Ok(p)
             ),
             Err(DeserializedBundleError::TooManyPackets)
         );
@@ -296,13 +299,14 @@ mod tests {
             Packet::from_data(None, transfer(&kp, &kp.pubkey(), 100, Hash::default())).unwrap();
         packet.meta_mut().set_discard(true);
 
-        assert_eq!(
+        assert_matches!(
             ImmutableDeserializedBundle::new(
                 &mut PacketBundle {
                     batch: PacketBatch::new(vec![packet]),
                     bundle_id: String::default(),
                 },
                 Some(5),
+                &|p| Ok(p)
             ),
             Err(DeserializedBundleError::MarkedDiscard)
         );
@@ -317,13 +321,14 @@ mod tests {
         let tx1 = transfer(&kp1, &kp0.pubkey(), 100, Hash::default());
         tx0.signatures = tx1.signatures;
 
-        assert_eq!(
+        assert_matches!(
             ImmutableDeserializedBundle::new(
                 &mut PacketBundle {
                     batch: PacketBatch::new(vec![Packet::from_data(None, tx0).unwrap()]),
                     bundle_id: String::default(),
                 },
-                None
+                None,
+                &|p| Ok(p)
             ),
             Err(DeserializedBundleError::SignatureVerificationFailure)
         );
@@ -356,6 +361,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
+            &|p| Ok(p),
         )
         .unwrap();
 
@@ -392,6 +398,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
+            &|p| Ok(p),
         )
         .unwrap();
 
@@ -421,6 +428,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
+            &|p| Ok(p),
         )
         .unwrap();
 
@@ -456,6 +464,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
+            &|p| Ok(p),
         )
         .unwrap();
 
@@ -485,6 +494,7 @@ mod tests {
                 bundle_id: String::default(),
             },
             None,
+            &|p| Ok(p),
         )
         .unwrap();
 

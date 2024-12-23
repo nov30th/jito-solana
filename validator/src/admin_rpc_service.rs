@@ -1031,7 +1031,7 @@ mod tests {
         },
         std::{
             collections::HashSet,
-            s::remove_dir_all,
+            fs::remove_dir_all,
             sync::{atomic::AtomicBool, Mutex},
         },
     };
@@ -1546,6 +1546,7 @@ mod tests {
                     tpu_max_connections_per_ipaddr_per_minute: 32, // max connections per IpAddr per minute for test
                 },
                 post_init,
+                None,
             )
             .expect("assume successful validator start");
             assert_eq!(

@@ -147,7 +147,6 @@ impl<'a> BundleTransactionsOutput<'a> {
                     .processing_results
                     .iter(),
             )
-            // TODO (LB): review this
             .filter_map(|(tx, exec_result)| exec_result.is_ok().then_some(tx))
             .collect()
     }
@@ -159,12 +158,6 @@ impl<'a> BundleTransactionsOutput<'a> {
     pub fn transactions(&self) -> &[RuntimeTransaction<SanitizedTransaction>] {
         self.transactions
     }
-
-    // pub fn loaded_transactions_mut(&mut self) -> &mut [TransactionLoadResult] {
-    //     &mut self
-    //         .load_and_execute_transactions_output
-    //         .loaded_transactions
-    // }
 
     pub fn execution_results(&self) -> &[TransactionProcessingResult] {
         &self.load_and_execute_transactions_output.processing_results
@@ -429,11 +422,10 @@ pub fn load_and_execute_bundle<'a>(
 
         // If none of the transactions were executed, most likely an AccountInUse error
         // need to retry to ensure that all transactions in the bundle are executed.
-        // TODO (LB): check this logic to ensure it covers all cases!
         if !load_and_execute_transactions_output
             .processing_results
             .iter()
-            .any(|r| r.is_err())
+            .any(|r| r.is_ok())
         {
             saturating_add_assign!(metrics.num_retries, 1);
             debug!(
@@ -550,7 +542,9 @@ mod tests {
         assert_matches::assert_matches,
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::{bank::Bank, bank_forks::BankForks, genesis_utils::GenesisConfigInfo},
-        solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
+        solana_runtime_transaction::{
+            runtime_transaction::RuntimeTransaction, transaction_with_meta::TransactionWithMeta,
+        },
         solana_sdk::{
             clock::MAX_PROCESSING_AGE,
             pubkey::Pubkey,
@@ -561,6 +555,7 @@ mod tests {
                 VersionedTransaction,
             },
         },
+        solana_svm::transaction_processing_result::TransactionProcessingResultExtensions,
         std::{
             sync::{Arc, Barrier, RwLock},
             thread::{sleep, spawn},
@@ -670,8 +665,11 @@ mod tests {
             .processing_results
             .first()
             .unwrap();
-        assert!(execution_result.was_executed());
-        assert!(execution_result.was_executed_successfully());
+        assert!(execution_result.is_ok());
+        let processed = execution_result.as_ref().unwrap().executed_transaction();
+        assert!(processed.is_some());
+        let executed = processed.unwrap();
+        assert!(executed.was_successful());
 
         // Make sure the post-balances are correct
         assert_eq!(tx_result.pre_balance_info.native.len(), 1);
@@ -738,7 +736,8 @@ mod tests {
                 execution_result,
             } => {
                 assert_eq!(signature, *bundle.transactions[0].signature());
-                assert!(!execution_result.was_executed());
+                let t = execution_result.unwrap();
+                assert_eq!(t.status(), Err(TransactionError::InsufficientFundsForFee));
             }
         }
     }
@@ -803,31 +802,48 @@ mod tests {
 
         // first batch contains the first tx that was executed
         assert_eq!(
-            execution_result.bundle_transaction_results[0].transactions,
-            bundle.transactions
+            execution_result.bundle_transaction_results[0]
+                .transactions
+                .iter()
+                .map(|r| r.to_versioned_transaction())
+                .collect::<Vec<VersionedTransaction>>(),
+            bundle
+                .transactions
+                .iter()
+                .map(|r| r.to_versioned_transaction())
+                .collect::<Vec<VersionedTransaction>>()
         );
         assert_eq!(
             execution_result.bundle_transaction_results[0]
                 .load_and_execute_transactions_output
-                .execution_results
+                .processing_results
                 .len(),
             3
         );
         assert!(execution_result.bundle_transaction_results[0]
             .load_and_execute_transactions_output
-            .execution_results[0]
-            .was_executed_successfully());
+            .processing_results
+            .get(0)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .status()
+            .is_ok());
         assert_eq!(
             execution_result.bundle_transaction_results[0]
                 .load_and_execute_transactions_output
-                .execution_results[1]
+                .processing_results
+                .get(1)
+                .unwrap()
                 .flattened_result(),
             Err(TransactionError::AccountInUse)
         );
         assert_eq!(
             execution_result.bundle_transaction_results[0]
                 .load_and_execute_transactions_output
-                .execution_results[2]
+                .processing_results
+                .get(2)
+                .unwrap()
                 .flattened_result(),
             Err(TransactionError::AccountInUse)
         );
@@ -869,24 +885,36 @@ mod tests {
         assert_eq!(
             execution_result.bundle_transaction_results[1]
                 .transactions
-                .to_owned(),
+                .iter()
+                .map(|r| r.to_versioned_transaction())
+                .collect::<Vec<VersionedTransaction>>(),
             bundle.transactions[1..]
+                .iter()
+                .map(|r| r.to_versioned_transaction())
+                .collect::<Vec<VersionedTransaction>>()
         );
         assert_eq!(
             execution_result.bundle_transaction_results[1]
                 .load_and_execute_transactions_output
-                .execution_results
+                .processing_results
                 .len(),
             2
         );
         assert!(execution_result.bundle_transaction_results[1]
             .load_and_execute_transactions_output
-            .execution_results[0]
-            .was_executed_successfully());
+            .processing_results
+            .get(0)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .status()
+            .is_ok());
         assert_eq!(
             execution_result.bundle_transaction_results[1]
                 .load_and_execute_transactions_output
-                .execution_results[1]
+                .processing_results
+                .get(1)
+                .unwrap()
                 .flattened_result(),
             Err(TransactionError::AccountInUse)
         );
@@ -927,20 +955,30 @@ mod tests {
         assert_eq!(
             execution_result.bundle_transaction_results[2]
                 .transactions
-                .to_owned(),
+                .iter()
+                .map(|r| r.to_versioned_transaction())
+                .collect::<Vec<VersionedTransaction>>(),
             bundle.transactions[2..]
+                .iter()
+                .map(|r| r.to_versioned_transaction())
+                .collect::<Vec<VersionedTransaction>>(),
         );
         assert_eq!(
             execution_result.bundle_transaction_results[2]
                 .load_and_execute_transactions_output
-                .execution_results
+                .processing_results
                 .len(),
             1
         );
         assert!(execution_result.bundle_transaction_results[2]
             .load_and_execute_transactions_output
-            .execution_results[0]
-            .was_executed_successfully());
+            .processing_results
+            .get(0)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .status()
+            .is_ok());
 
         assert_eq!(
             execution_result.bundle_transaction_results[2]
