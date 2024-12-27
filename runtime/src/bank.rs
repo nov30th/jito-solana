@@ -33,6 +33,10 @@
 //! It offers a high-level API that signs transactions
 //! on behalf of the caller, and a low-level API for when they have
 //! already been signed and verified.
+
+use std::net::{SocketAddr, UdpSocket};
+use std::sync::mpsc;
+use std::thread;
 use {
     crate::{
         bank::{
@@ -302,6 +306,29 @@ impl From<FeeDetails> for CollectorFeeDetails {
             priority_fee: fee_details.prioritization_fee(),
         }
     }
+}
+
+lazy_static! {
+    static ref UDP_QUEUE: Arc<Mutex<mpsc::Sender<Vec<u8>>>> = {
+        let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+        let udp_socket = UdpSocket::bind("0.0.0.0:0").expect("Failed to bind UDP socket");
+        let udp_socket = Arc::new(udp_socket);
+        let addr: SocketAddr = "127.0.0.1:44444".parse().unwrap();
+
+        // 启动发送线程
+        thread::spawn(move || {
+            while let Ok(bytes) = rx.recv() {
+                let socket = udp_socket.clone();
+                // 直接发送二进制数据
+                let send_result = socket.send_to(&bytes, &addr);
+                if let Err(err) = send_result {
+                    error!("Failed to send message to UDP socket 44444: {:?}", err);
+                }
+            }
+        });
+
+        Arc::new(Mutex::new(tx))
+    };
 }
 
 #[derive(Debug)]
@@ -5797,7 +5824,7 @@ impl Bank {
             };
 
             SanitizedTransaction::try_create(
-                tx,
+                tx.clone(),
                 message_hash,
                 None,
                 self,
@@ -5809,6 +5836,14 @@ impl Bank {
             || verification_mode == TransactionVerificationMode::FullVerification
         {
             sanitized_tx.verify_precompiles(&self.feature_set)?;
+        }
+
+        if let Ok(tx_bytes) = bincode::serialize(&tx) {
+            if let Ok(sender) = UDP_QUEUE.lock() {
+                if let Err(e) = sender.send(tx_bytes) {
+                    eprintln!("Failed to send message: {}", e);
+                }
+            }
         }
 
         Ok(sanitized_tx)
