@@ -1,1 +1,2 @@
-../build.rs
+// ../build.rs
+include!("../build.rs");
