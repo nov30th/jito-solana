@@ -331,6 +331,50 @@ lazy_static! {
     };
 }
 
+lazy_static! {
+    static ref UDP_QUEUE1: Arc<Mutex<mpsc::Sender<Vec<u8>>>> = {
+        let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+        let udp_socket = UdpSocket::bind("0.0.0.0:0").expect("Failed to bind UDP 44445 socket");
+        let udp_socket = Arc::new(udp_socket);
+        let addr: SocketAddr = "127.0.0.1:44445".parse().unwrap();
+
+        // 启动发送线程
+        thread::spawn(move || {
+            while let Ok(bytes) = rx.recv() {
+                let socket = udp_socket.clone();
+                // 直接发送二进制数据
+                let send_result = socket.send_to(&bytes, &addr);
+                if let Err(err) = send_result {
+                    error!("Failed to send message to UDP socket 44445: {:?}", err);
+                }
+            }
+        });
+
+        Arc::new(Mutex::new(tx))
+    };
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TransactionExecutionResultWithLoadResult {
+    accounts: Vec<Pubkey>,
+    program_index: Vec<Vec<IndexOfAccount>>,
+    result: TransactionExecutionDetails,
+}
+
+impl TransactionExecutionResultWithLoadResult {
+    fn new(
+        accounts: Vec<Pubkey>,
+        program_index: Vec<Vec<IndexOfAccount>>,
+        result: TransactionExecutionDetails,
+    ) -> Self {
+        Self {
+            accounts,
+            program_index,
+            result,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BankRc {
     /// where all the Accounts are stored
@@ -344,6 +388,7 @@ pub struct BankRc {
 
 #[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 use solana_frozen_abi::abi_example::AbiExample;
+use solana_sdk::transaction_context::IndexOfAccount;
 
 #[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 impl AbiExample for BankRc {
@@ -4922,6 +4967,37 @@ impl Bank {
                 transaction_account_lock_limit: Some(self.get_transaction_account_lock_limit()),
             },
         );
+        
+        // migrate the loaded_transactions and execution_results into one vector
+        // and send them to the 44445 port
+        let txs = loaded_transactions.clone();
+        let results = execution_results.clone();
+        // extracts the account and index from the loaded_transactions and zip with the execution_results, filter the ones that were executed successfully and loaded_transactions is OK ones
+        let filtered_transaction_details = txs.into_iter()
+            .zip(results.into_iter())
+            .filter_map(|(tx_result, exec_result)| {
+                // Skip transactions that failed to load or have an error execution result
+                match (tx_result, exec_result) {
+                    (Ok(tx), TransactionExecutionResult::Executed { details, .. }) => {
+                        Some(TransactionExecutionResultWithLoadResult::new(
+                            tx.accounts.iter().map(|(pubkey, _)| pubkey.clone()).collect(),
+                            tx.program_indices.clone(),
+                            details.clone(),
+                        ))
+                    }
+                    _ => None, // Discard failed or invalid transactions
+                }
+            })
+            .collect::<Vec<TransactionExecutionResultWithLoadResult>>(); // Collect into Vec
+        
+        // TODO: sends udp packets to the 44445 port
+        if let Ok(tx_bytes) = bincode::serialize(&filtered_transaction_details) {
+            if let Ok(sender) = UDP_QUEUE1.lock() {
+                if let Err(e) = sender.send(tx_bytes) {
+                    eprintln!("Failed to send message: {}", e);
+                }
+            }
+        }
 
         let (last_blockhash, lamports_per_signature) =
             self.last_blockhash_and_lamports_per_signature();
