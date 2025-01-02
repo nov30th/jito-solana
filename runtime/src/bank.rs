@@ -356,9 +356,9 @@ lazy_static! {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TransactionExecutionResultWithLoadResult {
-    accounts: Vec<Pubkey>,
-    program_index: Vec<Vec<IndexOfAccount>>,
-    result: TransactionExecutionDetails,
+    pub accounts: Vec<Pubkey>,
+    pub program_index: Vec<Vec<IndexOfAccount>>,
+    pub result: TransactionExecutionDetails,
 }
 
 impl TransactionExecutionResultWithLoadResult {
