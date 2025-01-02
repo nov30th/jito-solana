@@ -4990,13 +4990,11 @@ impl Bank {
             })
             .collect::<Vec<TransactionExecutionResultWithLoadResult>>(); // Collect into Vec
         
-        // TODO: sends udp packets to the 44445 port with each TransactionExecutionResultWithLoadResult in filtered_transaction_details
-        for transaction_detail in &filtered_transaction_details {
-            if let Ok(tx_bytes) = bincode::serialize(&transaction_detail) {
-                if let Ok(sender) = UDP_QUEUE1.lock() {
-                    if let Err(e) = sender.send(tx_bytes) {
-                        eprintln!("Failed to send message: {}", e);
-                    }
+        // TODO: sends udp packets to the 44445 port
+        if let Ok(tx_bytes) = bincode::serialize(&filtered_transaction_details) {
+            if let Ok(sender) = UDP_QUEUE1.lock() {
+                if let Err(e) = sender.send(tx_bytes) {
+                    eprintln!("Failed to send message: {}", e);
                 }
             }
         }
