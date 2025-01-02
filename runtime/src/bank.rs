@@ -356,20 +356,21 @@ lazy_static! {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TransactionExecutionResultWithLoadResult {
-    accounts: Vec<Pubkey>,
-    program_index: Vec<Vec<IndexOfAccount>>,
+    static_keys: [Pubkey],
+    dynamic_keys: Option<LoadedAddresses>,
+    programs: &[CompiledInstruction],
     result: TransactionExecutionDetails,
 }
 
 impl TransactionExecutionResultWithLoadResult {
     fn new(
-        accounts: Vec<Pubkey>,
-        program_index: Vec<Vec<IndexOfAccount>>,
+        accounts: AccountKeys,
+        programs: &[CompiledInstruction],
         result: TransactionExecutionDetails,
     ) -> Self {
         Self {
             accounts,
-            program_index,
+            programs,
             result,
         }
     }
@@ -388,6 +389,8 @@ pub struct BankRc {
 
 #[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 use solana_frozen_abi::abi_example::AbiExample;
+use solana_sdk::instruction::CompiledInstruction;
+use solana_sdk::message::v0::LoadedAddresses;
 use solana_sdk::transaction_context::IndexOfAccount;
 
 #[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
@@ -3857,6 +3860,29 @@ impl Bank {
                 &processing_config,
             );
 
+
+        for (tx, result) in sanitized_txs.iter().zip(&sanitized_output.execution_results) {
+            if let Some(TransactionExecutionResult::Executed { details, .. }) = result {
+                if let Some(log_messages) = &details.log_messages {
+                    for log_message in log_messages {
+                        info!(
+                            "log: {} {}",
+                            tx.message().recent_blockhash(),
+                            log_message.message
+                        );
+                    }
+                }
+            }
+        }
+        // TODO: sends udp packets to the 44445 port
+        if let Ok(tx_bytes) = bincode::serialize(&filtered_transaction_details) {
+            if let Ok(sender) = UDP_QUEUE1.lock() {
+                if let Err(e) = sender.send(tx_bytes) {
+                    eprintln!("Failed to send message: {}", e);
+                }
+            }
+        }
+
         // Accumulate the errors returned by the batch processor.
         error_counters.accumulate(&sanitized_output.error_metrics);
 
@@ -4981,7 +5007,7 @@ impl Bank {
                     (Ok(tx), TransactionExecutionResult::Executed { details, .. }) => {
                         Some(TransactionExecutionResultWithLoadResult::new(
                             tx.accounts.iter().map(|(pubkey, _)| pubkey.clone()).collect(),
-                            tx.program_indices.clone(),
+                            tx.program_indices,
                             details.clone(),
                         ))
                     }
@@ -4989,15 +5015,6 @@ impl Bank {
                 }
             })
             .collect::<Vec<TransactionExecutionResultWithLoadResult>>(); // Collect into Vec
-        
-        // TODO: sends udp packets to the 44445 port
-        if let Ok(tx_bytes) = bincode::serialize(&filtered_transaction_details) {
-            if let Ok(sender) = UDP_QUEUE1.lock() {
-                if let Err(e) = sender.send(tx_bytes) {
-                    eprintln!("Failed to send message: {}", e);
-                }
-            }
-        }
 
         let (last_blockhash, lamports_per_signature) =
             self.last_blockhash_and_lamports_per_signature();
