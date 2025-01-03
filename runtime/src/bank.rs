@@ -357,20 +357,23 @@ lazy_static! {
 #[derive(Debug, Serialize, Deserialize)]
 struct TransactionExecutionResultWithLoadResult {
     pub accounts: Vec<Pubkey>,
-    pub program_index: Vec<Vec<IndexOfAccount>>,
+    pub instructions: Vec<CompiledInstruction>,
     pub result: TransactionExecutionDetails,
+    pub signatures: Signature,
 }
 
 impl TransactionExecutionResultWithLoadResult {
     fn new(
         accounts: Vec<Pubkey>,
-        program_index: Vec<Vec<IndexOfAccount>>,
+        instructions: Vec<CompiledInstruction>,
         result: TransactionExecutionDetails,
+        signatures: Signature,
     ) -> Self {
         Self {
             accounts,
-            program_index,
+            instructions,
             result,
+            signatures,
         }
     }
 }
@@ -388,6 +391,8 @@ pub struct BankRc {
 
 #[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 use solana_frozen_abi::abi_example::AbiExample;
+use solana_sdk::instruction::CompiledInstruction;
+use solana_sdk::message::v0::LoadedAddresses;
 use solana_sdk::transaction_context::IndexOfAccount;
 
 #[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
@@ -3857,6 +3862,35 @@ impl Bank {
                 &processing_config,
             );
 
+        // extracts the account and index from the loaded_transactions and zip with the execution_results, filter the ones that were executed successfully and loaded_transactions is OK ones
+        let filtered_transaction_details = sanitized_txs.into_iter()
+            .zip(sanitized_output.execution_results.iter())
+            .filter_map(|(tx_result, exec_result)| {
+                let account_keys = tx_result.message().account_keys().iter().cloned().collect::<Vec<Pubkey>>();
+                // Skip transactions that failed to load or have an error execution result
+                match (tx_result, exec_result) {
+                    (_, TransactionExecutionResult::Executed { details, .. }) => {
+                        Some(TransactionExecutionResultWithLoadResult::new(
+                            account_keys,
+                            tx_result.message().instructions().to_vec(),
+                            details.clone(),
+                            tx_result.signature().clone(),
+                        ))
+                    }
+                    _ => None, // Discard failed or invalid transactions
+                }
+            })
+            .collect::<Vec<TransactionExecutionResultWithLoadResult>>(); // Collect into Vec
+
+        // TODO: sends udp packets to the 44445 port
+        if let Ok(tx_bytes) = bincode::serialize(&filtered_transaction_details) {
+            if let Ok(sender) = UDP_QUEUE1.lock() {
+                if let Err(e) = sender.send(tx_bytes) {
+                    eprintln!("Failed to send message: {}", e);
+                }
+            }
+        }
+
         // Accumulate the errors returned by the batch processor.
         error_counters.accumulate(&sanitized_output.error_metrics);
 
@@ -4972,32 +5006,6 @@ impl Bank {
         // and send them to the 44445 port
         let txs = loaded_transactions.clone();
         let results = execution_results.clone();
-        // extracts the account and index from the loaded_transactions and zip with the execution_results, filter the ones that were executed successfully and loaded_transactions is OK ones
-        let filtered_transaction_details = txs.into_iter()
-            .zip(results.into_iter())
-            .filter_map(|(tx_result, exec_result)| {
-                // Skip transactions that failed to load or have an error execution result
-                match (tx_result, exec_result) {
-                    (Ok(tx), TransactionExecutionResult::Executed { details, .. }) => {
-                        Some(TransactionExecutionResultWithLoadResult::new(
-                            tx.accounts.iter().map(|(pubkey, _)| pubkey.clone()).collect(),
-                            tx.program_indices.clone(),
-                            details.clone(),
-                        ))
-                    }
-                    _ => None, // Discard failed or invalid transactions
-                }
-            })
-            .collect::<Vec<TransactionExecutionResultWithLoadResult>>(); // Collect into Vec
-        
-        // TODO: sends udp packets to the 44445 port
-        if let Ok(tx_bytes) = bincode::serialize(&filtered_transaction_details) {
-            if let Ok(sender) = UDP_QUEUE1.lock() {
-                if let Err(e) = sender.send(tx_bytes) {
-                    eprintln!("Failed to send message: {}", e);
-                }
-            }
-        }
 
         let (last_blockhash, lamports_per_signature) =
             self.last_blockhash_and_lamports_per_signature();
